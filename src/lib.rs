@@ -61,12 +61,17 @@
 mod capture;
 mod layer;
 
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct _ReadmeDoctests;
+
 pub use capture::{CapturedEvent, FieldVisitor};
 pub use layer::{FlightRecorder, FlightRecorderLayer};
 
 /// Default ring-buffer capacity (number of events).
 ///
 /// At ~200-500 bytes per event, this uses ~200 KB - 500 KB of memory and
-/// captures roughly 30-60 seconds of DEBUG-level context in a typical
-/// workload.
+/// captures the most recent 1000 events. The time span covered depends on
+/// your application's event rate — at 10-50 events/sec this is roughly
+/// 20-100 seconds of context.
 pub const DEFAULT_CAPACITY: usize = 1000;

@@ -298,3 +298,36 @@ fn sensitive_fields_are_redacted() {
     assert_eq!(fields.get("password"), Some(&"[REDACTED]"));
     assert_eq!(fields.get("device"), Some(&"dev-1"));
 }
+
+#[test]
+fn dump_with_retention_does_not_overwrite_same_second() {
+    let recorder = FlightRecorder::new(100);
+    recorder.push(make_event("collision-test"));
+
+    let dir = tempfile_dir();
+
+    // Pre-create a file that collides with the timestamp-based name
+    // to deterministically exercise the collision guard.
+    let ts = chrono::Utc::now().format("%Y%m%dT%H%M%S");
+    let colliding = dir.join(format!("collide-{ts}.json"));
+    std::fs::write(&colliding, "[]").unwrap();
+
+    let path = recorder.dump_with_retention(&dir, "collide", 10).unwrap();
+
+    // The pre-existing file must survive — no silent overwrite.
+    assert!(
+        colliding.exists(),
+        "pre-existing file must not be overwritten"
+    );
+    // The dump must land at a distinct path.
+    assert_ne!(
+        path, colliding,
+        "same-second dump must get a counter suffix"
+    );
+    assert!(path.exists(), "dump file should exist");
+
+    // Verify the dumped content is valid.
+    let contents = std::fs::read_to_string(&path).unwrap();
+    let parsed: Vec<serde_json::Value> = serde_json::from_str(&contents).unwrap();
+    assert_eq!(parsed.len(), 1);
+}

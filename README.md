@@ -18,7 +18,7 @@ The recorder pays zero I/O cost until a snapshot is triggered.
 - **Secret redaction** — fields named `token`, `password`, `secret`, `api_key`, etc. are automatically redacted to `[REDACTED]`
 - **JSON snapshots** — `dump_to_json()`, `dump_to_file()`, `dump_with_retention()`
 - **Optional OpenAPI** — `utoipa::ToSchema` derive behind the `openapi` feature flag
-- **Zero monitor365 dependencies** — pure `tracing` ecosystem crate
+- **Zero non-tracing dependencies** — pure `tracing` ecosystem crate
 
 ## Quick Start
 
@@ -27,7 +27,7 @@ The recorder pays zero I/O cost until a snapshot is triggered.
 tracing-flight-recorder = "0.1"
 ```
 
-```rust
+```rust,no_run
 use tracing_flight_recorder::{FlightRecorder, FlightRecorderLayer};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -54,7 +54,11 @@ recorder.dump_to_file(std::path::Path::new("flight-recorder.json")).ok();
 
 ## Snapshot with Retention
 
-```rust
+```rust,no_run
+use tracing_flight_recorder::FlightRecorder;
+
+let recorder = FlightRecorder::new(1000);
+
 // Write to a diagnostics directory, keeping at most 10 snapshot files
 let path = recorder
     .dump_with_retention(

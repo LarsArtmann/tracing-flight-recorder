@@ -189,4 +189,22 @@ mod tests {
         assert_eq!(parsed["message"], "detailed trace");
         assert_eq!(parsed["fields"].as_array().map_or(0, Vec::len), 2);
     }
+
+    #[cfg(feature = "openapi")]
+    #[test]
+    fn captured_event_openapi_schema_contains_all_fields() {
+        use utoipa::OpenApi;
+
+        #[derive(OpenApi)]
+        #[openapi(components(schemas(CapturedEvent)))]
+        struct ApiDoc;
+
+        let json = ApiDoc::openapi().to_pretty_json().unwrap();
+        assert!(json.contains("CapturedEvent"), "schema name must appear");
+        assert!(json.contains("timestamp"));
+        assert!(json.contains("level"));
+        assert!(json.contains("target"));
+        assert!(json.contains("message"));
+        assert!(json.contains("fields"));
+    }
 }

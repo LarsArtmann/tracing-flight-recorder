@@ -122,8 +122,10 @@ impl FlightRecorder {
     /// Write a timestamped snapshot to a diagnostics directory with retention.
     ///
     /// Creates `dir` if it doesn't exist. The filename is
-    /// `{prefix}-{YYYYmmddT-HHMMSS}.json`. After writing, deletes the oldest
-    /// snapshots matching the prefix beyond `max_files`.
+    /// `{prefix}-{YYYYmmddT-HHMMSS}.json`. If a file with that name already
+    /// exists (e.g. two dumps in the same second), a counter is appended:
+    /// `{prefix}-{YYYYmmddT-HHMMSS}-1.json`, `-2.json`, etc. After writing,
+    /// deletes the oldest snapshots matching the prefix beyond `max_files`.
     ///
     /// # Errors
     ///
@@ -138,8 +140,20 @@ impl FlightRecorder {
         std::fs::create_dir_all(dir)?;
 
         let ts = chrono::Utc::now().format("%Y%m%dT%H%M%S");
-        let filename = format!("{prefix}-{ts}.json");
-        let path = dir.join(&filename);
+        let base = format!("{prefix}-{ts}");
+        let path = dir.join(format!("{base}.json"));
+
+        let path = if path.exists() {
+            let mut counter: u32 = 1;
+            let mut candidate = dir.join(format!("{base}-{counter}.json"));
+            while candidate.exists() {
+                counter = counter.saturating_add(1);
+                candidate = dir.join(format!("{base}-{counter}.json"));
+            }
+            candidate
+        } else {
+            path
+        };
 
         self.dump_to_file(&path)?;
 
@@ -200,7 +214,7 @@ impl std::fmt::Debug for FlightRecorder {
 ///
 /// **Per-layer filtering is required for this to deliver value.** Apply
 /// `EnvFilter` to the `fmt` (console) layer only, and give this layer its own
-/// broader filter (e.g. `EnvFilter::new("monitor365=debug,warn")`). If a global
+/// broader filter (e.g. `EnvFilter::new("my_app=debug,warn")`). If a global
 /// `EnvFilter` is used instead, DEBUG/TRACE events are dropped before reaching
 /// this layer's `on_event`, defeating the entire purpose.
 pub struct FlightRecorderLayer {
