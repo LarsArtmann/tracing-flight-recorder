@@ -17,16 +17,16 @@
 
 | Task                                                            | Status    | Impact | Effort | Evidence                                                                                  |
 | --------------------------------------------------------------- | --------- | ------ | ------ | ----------------------------------------------------------------------------------------- |
-| Untrack `target/` from git (680 build-artifact files committed) | 🔴 `TODO` | High   | 10min  | `git ls-files target/ \| wc -l` = 680; `.gitignore` has `target/` but files remain tracked |
-| Remove leaked `monitor365` project name from public docs        | 🔴 `TODO` | High   | 10min  | `src/layer.rs:203` (doc comment example target) and `README.md:21` ("Zero monitor365 dependencies") — nonsensical in a public crate |
+| Concurrency stress test (multi-thread push + snapshot)         | 🔴 `TODO` | High   | 20min  | No multi-thread test exists; `Arc<Mutex<VecDeque>>` is thread-safe but unexercised under contention |
+| Proptest eviction invariant (push > capacity → len == capacity) | 🔴 `TODO` | Med    | 25min  | Eviction tested with fixed inputs only; no property-based testing of the invariant       |
 
 ## Medium Impact
 
 | Task                                                                     | Status    | Impact | Effort | Evidence                                                                              |
 | ------------------------------------------------------------------------ | --------- | ------ | ------ | ------------------------------------------------------------------------------------- |
-| Add GitHub Actions CI (build, `cargo test --all-features`, clippy deny)  | 🔴 `TODO` | Med    | 30min  | No `.github/` dir; no CI; strict clippy gate exists but only runs locally             |
-| Guard against same-second filename collision in `dump_with_retention`    | 🔴 `TODO` | Med    | 20min  | `src/layer.rs:140` uses `%Y%m%dT%H%M%S` (second precision); two dumps in one second silently overwrite |
-| Add test asserting `utoipa::ToSchema` output for `CapturedEvent`         | 🔴 `TODO` | Med    | 20min  | Derive compiles under `--all-features` (`src/capture.rs:13`) but no test verifies the generated schema (FEATURES.md flags this as PARTIALLY_FUNCTIONAL) |
+| Poison-recovery test (panicked thread → recorder still usable)           | 🔴 `TODO` | Med    | 15min  | Poison-safe locking is a design choice but no test exercises the recovery path         |
+| Unicode field name redaction test                                        | 🔴 `TODO` | Low-Med | 10min  | `is_sensitive_field` lowercases then substring-matches; Unicode edge cases untested   |
+| Non-JSON files survive retention pruning                                 | 🔴 `TODO` | Low-Med | 10min  | `cleanup_old_snapshots` filters by `.json` extension; no test verifies non-JSON files are left alone |
 
 ## Low Impact
 

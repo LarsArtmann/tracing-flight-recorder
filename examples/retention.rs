@@ -1,8 +1,6 @@
 //! Demonstrates `dump_with_retention`: write timestamped snapshots and
 //! automatically prune old ones.
 
-use std::path::Path;
-
 use tracing_flight_recorder::{FlightRecorder, FlightRecorderLayer};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -16,7 +14,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with(FlightRecorderLayer::new(recorder.clone()).with_filter(fr_filter))
         .init();
 
-    let dir = Path::new("./diagnostics-example");
+    let dir = std::env::temp_dir().join("diagnostics-example");
 
     // Simulate three failure cycles — each dumps a snapshot.
     for cycle in 1..=3 {
@@ -26,12 +24,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         tracing::warn!(cycle, "simulated failure!");
 
-        let path = recorder.dump_with_retention(dir, "snapshot", 5)?;
+        let path = recorder.dump_with_retention(&dir, "snapshot", 5)?;
         println!("Cycle {cycle}: wrote {}", path.display());
     }
 
     // Count remaining snapshots.
-    let count = std::fs::read_dir(dir).map_or(0, |entries| entries.filter_map(Result::ok).count());
+    let count = std::fs::read_dir(&dir).map_or(0, |entries| entries.filter_map(Result::ok).count());
     println!("Remaining snapshot files: {count}");
 
     Ok(())

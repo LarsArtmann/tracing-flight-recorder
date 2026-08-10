@@ -63,7 +63,7 @@ mod layer;
 
 #[cfg(doctest)]
 #[doc = include_str!("../README.md")]
-pub struct _ReadmeDoctests;
+struct _ReadmeDoctests;
 
 pub use capture::{CapturedEvent, FieldVisitor};
 pub use layer::{FlightRecorder, FlightRecorderLayer};

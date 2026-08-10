@@ -13,7 +13,7 @@ appears in source code, tests, or documentation — there are no dead terms.
 | **Ring Buffer** | The fixed-capacity circular buffer (`VecDeque`) inside `FlightRecorder` that stores events and evicts the oldest when full. | `FlightRecorder.buffer` field — `src/layer.rs:18` |
 | **Snapshot** | A point-in-time copy (cloned `Vec<CapturedEvent>`) of all events currently in the ring buffer, returned in insertion order (oldest first). | `FlightRecorder::snapshot()` — `src/layer.rs:52` |
 | **Eviction** | The removal (`pop_front`) of the oldest event from the ring buffer when it is at capacity, to make room for a new event. | `FlightRecorder::push()` — `src/layer.rs:39` |
-| **Capacity** | The maximum number of events the ring buffer retains before evicting old ones. Defaults to 1000 (`DEFAULT_CAPACITY`). | `FlightRecorder.capacity` — `src/layer.rs:19`; `DEFAULT_CAPACITY` — `src/lib.rs:72` |
+| **Capacity** | The maximum number of events the ring buffer retains before evicting old ones. Defaults to 1000 (`DEFAULT_CAPACITY`). | `FlightRecorder.capacity` — `src/layer.rs:19`; `DEFAULT_CAPACITY` — `src/lib.rs:77` |
 
 ## Data Structures
 
@@ -32,16 +32,16 @@ appears in source code, tests, or documentation — there are no dead terms.
 | Term | Definition | Where used |
 |------|------------|------------|
 | **Dump** | Serializing the ring-buffer contents to an external format — a JSON string (`dump_to_json`) or a file (`dump_to_file`). | `FlightRecorder::dump_to_json()` — `src/layer.rs:66`; `dump_to_file()` — `src/layer.rs:78` |
-| **Retention Dump** | A dump strategy that writes a timestamped snapshot file into a diagnostics directory, then deletes the oldest matching files beyond `max_files`. | `FlightRecorder::dump_with_retention()` — `src/layer.rs:132` |
-| **Diagnostics Directory** | A filesystem directory where timestamped snapshot files are written and pruned according to the retention policy. | `dir` parameter — `src/layer.rs:134` |
+| **Retention Dump** | A dump strategy that writes a timestamped snapshot file into a diagnostics directory, then deletes the oldest matching files beyond `max_files`. | `FlightRecorder::dump_with_retention()` — `src/layer.rs:134` |
+| **Diagnostics Directory** | A filesystem directory where timestamped snapshot files are written and pruned according to the retention policy. | `dir` parameter — `src/layer.rs:136` |
 | **Redaction** | Automatic replacement of sensitive field values with `[REDACTED]`. Field names matched: `token`, `password`, `secret`, `api_key`, `credential`, `passphrase`, `private_key`. Over-redaction is intentional. | `is_sensitive_field()` — `src/capture.rs:91` |
 
 ## Tracing Integration
 
 | Term | Definition | Where used |
 |------|------------|------------|
-| **Layer** (`FlightRecorderLayer`) | A `tracing_subscriber::Layer` that receives every event passing its per-layer filter and feeds each into a `FlightRecorder`. | `FlightRecorderLayer` — `src/layer.rs:206`; `impl Layer` — `src/layer.rs:224` |
-| **Per-Layer Filter** | A `tracing_subscriber` filter applied to an individual `Layer` so the recorder captures DEBUG/TRACE while the console `fmt` layer stays at INFO. A global filter would block verbose events before they reach the recorder. | Doc comment — `src/layer.rs:201`; Quick Start — `src/lib.rs:20` |
+| **Layer** (`FlightRecorderLayer`) | A `tracing_subscriber::Layer` that receives every event passing its per-layer filter and feeds each into a `FlightRecorder`. | `FlightRecorderLayer` — `src/layer.rs:226`; `impl Layer` — `src/layer.rs:244` |
+| **Per-Layer Filter** | A `tracing_subscriber` filter applied to an individual `Layer` so the recorder captures DEBUG/TRACE while the console `fmt` layer stays at INFO. A global filter would block verbose events before they reach the recorder. | Doc comment — `src/layer.rs:221`; Quick Start — `src/lib.rs:23` |
 
 ## Optional Features
 

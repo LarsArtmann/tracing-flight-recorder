@@ -45,4 +45,10 @@ reports/
 ## Rust
 target/
 *.pdb
+
+## Example output artifacts
+minimal-dump.json
+diagnostics-example/
+diagnostics/
+flight-recorder.json
 # <<< buildflow-managed (.gitignore) <<<

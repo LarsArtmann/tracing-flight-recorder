@@ -1,5 +1,6 @@
 use super::*;
 use crate::capture::CapturedEvent;
+use proptest::prelude::*;
 
 fn make_event(msg: &str) -> CapturedEvent {
     CapturedEvent {
@@ -330,4 +331,274 @@ fn dump_with_retention_does_not_overwrite_same_second() {
     let contents = std::fs::read_to_string(&path).unwrap();
     let parsed: Vec<serde_json::Value> = serde_json::from_str(&contents).unwrap();
     assert_eq!(parsed.len(), 1);
+}
+
+// ── M8: Test hardening ────────────────────────────────────────────────
+
+#[test]
+fn recorder_recovers_from_poisoned_mutex() {
+    let recorder = FlightRecorder::new(100);
+    recorder.push(make_event("before-poison"));
+
+    // Poison the mutex by panicking while holding the lock.
+    let recorder_clone = recorder.clone();
+    let handle = std::thread::spawn(move || {
+        let _guard = recorder_clone
+            .buffer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        panic!("intentional panic while holding lock");
+    });
+    // Wait for the panicking thread to finish (ignore the panic).
+    let _ = handle.join();
+
+    // The recorder must still be usable — poison-safe recovery.
+    recorder.push(make_event("after-poison"));
+    let snap = recorder.snapshot();
+    assert!(
+        snap.iter().any(|e| e.message == "after-poison"),
+        "recorder must be usable after mutex poison"
+    );
+    assert!(
+        snap.iter().any(|e| e.message == "before-poison"),
+        "pre-poison events must survive"
+    );
+}
+
+#[test]
+fn unicode_field_names_with_ascii_sensitive_substring_are_redacted() {
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let recorder = FlightRecorder::new(100);
+    let layer = FlightRecorderLayer::new(recorder.clone());
+
+    let subscriber = tracing_subscriber::registry().with(layer);
+
+    tracing::subscriber::with_default(subscriber, || {
+        tracing::info!(
+            café_token = "unicode-prefixed-token",
+            näme = "harmless-unicode-name",
+            "unicode test"
+        );
+    });
+
+    let snap = recorder.snapshot();
+    assert_eq!(snap.len(), 1);
+    let event = &snap[0];
+    let fields: std::collections::HashMap<&str, &str> = event
+        .fields
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+
+    // "café_token" contains the ASCII substring "token" → redacted.
+    assert_eq!(
+        fields.get("café_token"),
+        Some(&"[REDACTED]"),
+        "ASCII 'token' substring inside Unicode field name must be caught"
+    );
+    // "näme" is harmless → preserved.
+    assert_eq!(fields.get("näme"), Some(&"harmless-unicode-name"));
+}
+
+#[test]
+fn dump_to_file_creates_nested_directories() {
+    let recorder = FlightRecorder::new(100);
+    recorder.push(make_event("nested-test"));
+
+    let base = tempfile_dir();
+    let nested = base.join("a").join("b").join("c");
+    let path = nested.join("deep-dump.json");
+
+    recorder.dump_to_file(&path).unwrap();
+
+    assert!(path.exists());
+    let contents = std::fs::read_to_string(&path).unwrap();
+    let parsed: Vec<serde_json::Value> = serde_json::from_str(&contents).unwrap();
+    assert_eq!(parsed.len(), 1);
+}
+
+#[test]
+fn retention_pruning_leaves_non_json_files_alone() {
+    let dir = tempfile_dir();
+
+    // Pre-create some old JSON snapshots + some non-JSON files.
+    for i in 0..3 {
+        std::fs::write(dir.join(format!("snap-2026010T00000{i}.json")), "[]").unwrap();
+    }
+    std::fs::write(dir.join("snap-readme.txt"), "notes").unwrap();
+    std::fs::write(dir.join("snap-config.yaml"), "key: value").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(20));
+
+    let recorder = FlightRecorder::new(100);
+    recorder.push(make_event("new"));
+    let _ = recorder.dump_with_retention(&dir, "snap", 2).unwrap();
+
+    // Non-JSON files must survive.
+    assert!(
+        dir.join("snap-readme.txt").exists(),
+        "txt file must survive pruning"
+    );
+    assert!(
+        dir.join("snap-config.yaml").exists(),
+        "yaml file must survive pruning"
+    );
+
+    // JSON files should be pruned to max_files (2).
+    let json_count = std::fs::read_dir(&dir)
+        .unwrap()
+        .filter_map(std::result::Result::ok)
+        .filter(|e| {
+            e.file_name().to_str().is_some_and(|n| {
+                n.starts_with("snap-")
+                    && std::path::Path::new(n)
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("json"))
+            })
+        })
+        .count();
+    assert!(
+        json_count <= 2,
+        "at most 2 JSON snapshots should remain, got {json_count}"
+    );
+}
+
+// ── M9: Concurrency + property tests ─────────────────────────────────
+
+proptest::proptest! {
+    #[test]
+    fn eviction_invariant_len_never_exceeds_capacity(
+        capacity in 1usize..=500,
+        num_events in 0usize..=2000,
+    ) {
+        let recorder = FlightRecorder::new(capacity);
+        for i in 0..num_events {
+            recorder.push(make_event(&format!("event-{i}")));
+        }
+
+        let snap = recorder.snapshot();
+        prop_assert!(
+            snap.len() <= capacity,
+            "snapshot len {} exceeded capacity {}",
+            snap.len(),
+            capacity
+        );
+
+        let expected_len = num_events.min(capacity);
+        prop_assert_eq!(snap.len(), expected_len);
+
+        // If we evicted, the oldest events should be gone and newest present.
+        if num_events > capacity {
+            let first_expected = num_events - capacity;
+            prop_assert_eq!(&snap[0].message, &format!("event-{first_expected}"));
+        }
+        if num_events > 0 {
+            prop_assert_eq!(&snap[snap.len() - 1].message, &format!("event-{}", num_events - 1));
+        }
+    }
+}
+
+#[test]
+fn multi_thread_stress_push_and_snapshot() {
+    use std::sync::Arc;
+    use std::thread;
+
+    let capacity = 200;
+    let recorder = Arc::new(FlightRecorder::new(capacity));
+    let num_threads = 8;
+    let events_per_thread = 100;
+
+    let mut handles = vec![];
+    for t in 0..num_threads {
+        let rc = Arc::clone(&recorder);
+        handles.push(thread::spawn(move || {
+            for i in 0..events_per_thread {
+                rc.push(CapturedEvent {
+                    timestamp: chrono::Utc::now(),
+                    level: "DEBUG".to_string(),
+                    target: format!("thread-{t}"),
+                    message: format!("msg-{t}-{i}"),
+                    fields: vec![],
+                });
+            }
+        }));
+    }
+
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    let snap = recorder.snapshot();
+    assert!(
+        snap.len() <= capacity,
+        "snapshot must not exceed capacity: {} > {}",
+        snap.len(),
+        capacity
+    );
+    let total_pushed = num_threads * events_per_thread;
+    let expected_len = total_pushed.min(capacity);
+    assert_eq!(
+        snap.len(),
+        expected_len,
+        "snapshot should contain exactly min(pushed, capacity) events"
+    );
+
+    // No event should be corrupted — all messages follow the expected pattern.
+    for event in &snap {
+        assert!(
+            event.message.starts_with("msg-"),
+            "corrupted event message: {}",
+            event.message
+        );
+    }
+}
+
+// ── M13: Memory footprint measurement ────────────────────────────────
+
+#[test]
+fn memory_footprint_of_default_capacity_buffer() {
+    let recorder = FlightRecorder::new(DEFAULT_CAPACITY);
+
+    // Fill with representative events (realistic field sizes).
+    for i in 0..DEFAULT_CAPACITY {
+        recorder.push(CapturedEvent {
+            timestamp: chrono::Utc::now(),
+            level: "DEBUG".to_string(),
+            target: format!("my_app::service::handler::{i}"),
+            message: format!("Processing request batch #{i} with timeout 30s"),
+            fields: vec![
+                ("request_id".to_string(), format!("req-{i:04x}")),
+                ("duration_ms".to_string(), "42".to_string()),
+                ("status".to_string(), "ok".to_string()),
+            ],
+        });
+    }
+
+    let snap = recorder.snapshot();
+    let total_bytes: usize = snap
+        .iter()
+        .map(|e| {
+            std::mem::size_of_val(&e.timestamp)
+                + e.level.len()
+                + e.target.len()
+                + e.message.len()
+                + e.fields
+                    .iter()
+                    .map(|(k, v)| k.len() + v.len())
+                    .sum::<usize>()
+                + std::mem::size_of::<CapturedEvent>()
+        })
+        .sum();
+
+    println!(
+        "1000-event buffer: ~{} bytes ({:.1} KB) — README claims ~200-500 KB",
+        total_bytes,
+        total_bytes as f64 / 1024.0
+    );
+
+    // With realistic events (~100-200 bytes each), 1000 events = ~200-500 KB.
+    assert!(
+        total_bytes < 1_000_000,
+        "memory footprint {total_bytes} exceeds expected ~500KB range"
+    );
 }

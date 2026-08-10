@@ -31,7 +31,7 @@
 
 | Feature                              | Status                | Notes                                                                                |
 | ------------------------------------ | --------------------- | ------------------------------------------------------------------------------------ |
-| `tracing_subscriber::Layer` impl     | 🟢 `FULLY_FUNCTIONAL` | `FlightRecorderLayer::on_event` → `CapturedEvent::from_event` (`src/layer.rs:228`); tested end-to-end `layer_captures_real_tracing_events` |
+| `tracing_subscriber::Layer` impl     | 🟢 `FULLY_FUNCTIONAL` | `FlightRecorderLayer::on_event` → `CapturedEvent::from_event` (`src/layer.rs:248`); tested end-to-end `layer_captures_real_tracing_events` |
 | Per-layer filter independence        | 🟢 `FULLY_FUNCTIONAL` | Captures events a sibling `fmt` layer's filter blocks; regression-tested `flight_recorder_sees_events_blocked_by_other_layer_filter` |
 | Structured field capture (all types) | 🟢 `FULLY_FUNCTIONAL` | `FieldVisitor` handles str/bool/i64/u64/f64/i128/u128/debug/error (`src/capture.rs:103`); tested `layer_captures_structured_fields_from_real_events` |
 
@@ -47,13 +47,13 @@
 | ------------------------------- | --------------------- | ------------------------------------------------------------------------------------ |
 | JSON serialization              | 🟢 `FULLY_FUNCTIONAL` | `dump_to_json()` → pretty JSON array (`src/layer.rs:66`); tested `dump_to_json_produces_valid_json_array` |
 | File dump with dir creation     | 🟢 `FULLY_FUNCTIONAL` | `dump_to_file()` creates parent dirs (`src/layer.rs:78`); tested `dump_to_file_writes_valid_json` |
-| Retention dumps with pruning    | 🟢 `FULLY_FUNCTIONAL` | `dump_with_retention()` writes `{prefix}-{timestamp}.json`, deletes oldest beyond max (`src/layer.rs:132`); tested `dump_with_retention_creates_file_and_dir`, `dump_with_retention_prunes_old_snapshots` |
+| Retention dumps with pruning    | 🟢 `FULLY_FUNCTIONAL` | `dump_with_retention()` writes `{prefix}-{timestamp}.json` with same-second collision guard (`-{counter}` suffix), deletes oldest beyond max (`src/layer.rs:134`); tested `dump_with_retention_creates_file_and_dir`, `dump_with_retention_prunes_old_snapshots`, `dump_with_retention_does_not_overwrite_same_second` |
 
 ## Integrations
 
 | Feature                              | Status                      | Notes                                                                                |
 | ------------------------------------ | --------------------------- | ------------------------------------------------------------------------------------ |
-| OpenAPI schema (`utoipa::ToSchema`)  | 🟡 `PARTIALLY_FUNCTIONAL`   | `derive(utoipa::ToSchema)` on `CapturedEvent` behind `openapi` feature, compiles clean under `--all-features` (`src/capture.rs:13`); **no test asserts the generated schema** |
+| OpenAPI schema (`utoipa::ToSchema`)  | 🟢 `FULLY_FUNCTIONAL`       | `derive(utoipa::ToSchema)` on `CapturedEvent` behind `openapi` feature (`src/capture.rs:13`); tested `captured_event_openapi_schema_contains_all_fields` — generates full OpenAPI JSON and asserts all field names appear |
 
 ---
 

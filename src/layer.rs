@@ -147,6 +147,12 @@ impl FlightRecorder {
             let mut counter: u32 = 1;
             let mut candidate = dir.join(format!("{base}-{counter}.json"));
             while candidate.exists() {
+                if counter >= 9999 {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::AlreadyExists,
+                        "too many same-second snapshot files (9999+)",
+                    ));
+                }
                 counter = counter.saturating_add(1);
                 candidate = dir.join(format!("{base}-{counter}.json"));
             }

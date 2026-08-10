@@ -1,7 +1,5 @@
 //! Minimal example: record tracing events and dump them to a JSON file on "failure".
 
-use std::path::Path;
-
 use tracing_flight_recorder::{FlightRecorder, FlightRecorderLayer};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -26,9 +24,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::debug!(item_id = 43, "processing item");
     tracing::warn!(latency_ms = 850, "slow request detected");
 
-    // Simulate a failure: dump the flight recorder to disk.
-    let path = Path::new("minimal-dump.json");
-    recorder.dump_to_file(path)?;
+    // Simulate a failure: dump the flight recorder to the OS temp directory.
+    let path = std::env::temp_dir().join("minimal-dump.json");
+    recorder.dump_to_file(&path)?;
     println!("Dumped flight recorder to {}", path.display());
     println!("Inspect with: jq . {}", path.display());
 

@@ -8,13 +8,13 @@ In-memory ring-buffer flight recorder for `tracing` events. Pure Rust **library 
 cargo build                         # build the library
 cargo build --all-features          # build including the `openapi` feature (enables utoipa)
 cargo test                          # run all unit + doc tests
-cargo test --all-features           # run tests with the openapi feature active
-cargo clippy --all-features         # lint; see "Strict Clippy" below — must pass clean
-cargo clippy -- -D warnings         # treat warnings as errors
-cargo doc --no-deps --open          # generate docs
+cargo test --all-features           # canonical gate: 24 unit + 3 doctests (includes openapi + proptest)
+cargo clippy --all-features --all-targets -- -D warnings   # strict lint gate
+cargo fmt --check                   # format check
+cargo doc --all-features --no-deps  # generate docs
 ```
 
-Always run clippy with `--all-features` so the `openapi`-gated code paths are checked. MSRV is **1.86**, edition 2021.
+Always run clippy with `--all-features` so the `openapi`-gated code paths are checked. MSRV is **1.86**, edition 2021. `proptest` is a dev-dependency for property-based tests.
 
 ## Strict Clippy — Read Before Writing Any Code
 
@@ -71,3 +71,7 @@ There is a dedicated regression test guarding this: `flight_recorder_sees_events
 - **End-to-end tests install a real subscriber** via `tracing::subscriber::with_default(subscriber, || { ... })` rather than mocking — emit real `tracing::debug!`/`info!`/`warn!` events and assert they land in the recorder. Prefer this style for new layer/pipeline tests.
 - **Temp files**: no `tempfile` crate dependency. Tests build a unique dir from `std::env::temp_dir()` + PID + nanos (`tempfile_dir()` helper in `layer_tests.rs`). Reuse that helper rather than adding a dependency.
 - **Ring-buffer edge cases** (capacity 1, eviction order, clone-sharing) have explicit unit tests — keep them green when touching `push`/`snapshot`.
+- **Property tests** (`proptest`) verify the eviction invariant across random capacity/event-count combinations.
+- **Concurrency tests** stress the `Arc<Mutex<VecDeque>>` under multi-thread contention (8 threads × 100 events).
+- **Memory footprint test** measures actual bytes of a 1000-event buffer (~237 KB) and asserts it stays within the README-claimed ~200-500 KB range.
+- **Collision guard test** verifies that same-second dumps in `dump_with_retention` do not overwrite each other.
