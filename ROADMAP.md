@@ -58,17 +58,17 @@ Raw ideas:
 
 ### 5. Crates.io publication
 
-v0.1.0 is published to [crates.io](https://crates.io/crates/tracing-flight-recorder)
-and documented on [docs.rs](https://docs.rs/tracing-flight-recorder) (built with
-the `openapi` feature). Automated publish-on-tag is wired in
-[`publish.yml`](https://github.com/LarsArtmann/tracing-flight-recorder/blob/master/.github/workflows/publish.yml).
-See [`docs/RELEASE.md`](RELEASE.md) for the full release runbook.
+Published and automated. v0.1.1 is live on
+[crates.io](https://crates.io/crates/tracing-flight-recorder) and
+[docs.rs](https://docs.rs/tracing-flight-recorder) (built with the `openapi`
+feature). Pushing a `v*.*.*` tag triggers
+[`publish.yml`](https://github.com/LarsArtmann/tracing-flight-recorder/blob/master/.github/workflows/publish.yml)
+which publishes automatically via the `CARGO_REGISTRY_TOKEN` secret. See
+[`docs/RELEASE.md`](RELEASE.md) for the full release runbook.
 
 Raw ideas:
 
-- Verify `Cargo.toml` metadata renders correctly on crates.io
-- Set up `CARGO_REGISTRY_TOKEN` secret for automated publish-on-tag
-- Add a minimal `examples/` directory (binary examples beyond doc tests)
+- Add more runnable examples (e.g. tower middleware auto-dump, panic-hook integration)
 
 ## Non-goals
 

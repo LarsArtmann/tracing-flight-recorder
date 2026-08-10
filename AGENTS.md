@@ -20,7 +20,7 @@ Always run clippy with `--all-features` so the `openapi`-gated code paths are ch
 
 - **`docs/RELEASE.md`** — full release runbook (pre-release checklist, verification gate, semver rules, step-by-step cutting, post-release verification, rollback).
 - **`release.toml`** — `cargo-release` config. `push = false` (don't auto-push), `publish = true`. Run `cargo release version <x.y.z> --execute` to cut a release.
-- **`.github/workflows/publish.yml`** — automated crates.io publishing on `v*.*.*` tag push. Verifies tag matches `Cargo.toml` version, idempotency guard against re-publish.
+- **`.github/workflows/publish.yml`** — automated crates.io publishing on `v*.*.*` tag push. Verifies tag matches `Cargo.toml` version, idempotency guard against re-publish. `CARGO_REGISTRY_TOKEN` secret is configured. Pushing a tag publishes automatically.
 - **`deny.toml`** — `cargo-deny` config (advisories, licenses, bans, sources). Run with `cargo deny check`.
 - **`[package.metadata.docs.rs]`** in `Cargo.toml` — builds docs.rs with the `openapi` feature so `ToSchema` appears on the published docs page.
 - **GitHub repo**: `git@github.com:LarsArtmann/tracing-flight-recorder.git` (public). Topics: tracing, flight-recorder, diagnostics, ring-buffer, debugging, rust, tracing-subscriber.
