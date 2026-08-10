@@ -8,10 +8,19 @@ license = "Apache-2.0"
 description = "In-memory ring-buffer flight recorder for tracing events. Inspired by Go 1.25's trace.FlightRecorder — continuously buffers DEBUG/TRACE events, snapshots on failure."
 repository = "https://github.com/LarsArtmann/tracing-flight-recorder"
 homepage = "https://github.com/LarsArtmann/tracing-flight-recorder"
+documentation = "https://docs.rs/tracing-flight-recorder"
 readme = "README.md"
 keywords = ["tracing", "flight-recorder", "diagnostics", "ring-buffer", "debugging"]
 categories = ["development-tools::debugging", "development-tools::profiling"]
-exclude = ["/target", "/.github", "/docs/status", "/docs/planning", "/AGENTS.md", "/CONTRIBUTING.md", "/TODO_LIST.md", "/FEATURES.md", "/ROADMAP.md"]
+exclude = ["/target", "/.github", "/docs/status", "/docs/planning", "/docs/RELEASE.md", "/AGENTS.md", "/CONTRIBUTING.md", "/TODO_LIST.md", "/FEATURES.md", "/ROADMAP.md"]
+
+# Build docs.rs with the `openapi` feature so `CapturedEvent`'s `ToSchema`
+# derive appears on the published docs page. Without this, docs.rs builds
+# with `default = []` and the OpenAPI schema (the feature users would want
+# to see) is invisible.
+[package.metadata.docs.rs]
+features = ["openapi"]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = []
@@ -41,6 +50,11 @@ panic_in_result_fn = "deny"
 panic = "deny"
 exit = "deny"
 as_conversions = "deny"
+
+[lints.rust]
+# `docsrs` is set only by docs.rs (via rustdoc-args above) to enable
+# `doc(cfg(...))` feature-gate badges on the published docs page.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(docsrs)'] }
 
 [dev-dependencies]
 proptest = "1.11.0"

@@ -1,0 +1,76 @@
+name: Publish to crates.io
+
+# Triggered by version tags (v0.1.0, v0.1.1, etc.). Publishes the crate to
+# crates.io using the CARGO_REGISTRY_TOKEN secret.
+#
+# Setup (one-time, repo admin):
+#   1. Create a crates.io API token at https://crates.io/settings/api-tokens
+#      with `publish-new` and `publish-update` scopes.
+#   2. Add it as a repository secret named `CARGO_REGISTRY_TOKEN` at
+#      https://github.com/LarsArtmann/tracing-flight-recorder/settings/secrets/actions
+#
+# Once the secret exists, every `git push origin v*.*.*` will publish
+# automatically. Until then, this workflow will fail at the publish step
+# (visible in the Actions tab) and manual `cargo publish` is the fallback.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  # Dry-run on PRs that touch packaging, so publish-time surprises
+  # (missing files in the tarball, version mismatch, etc.) surface early.
+  pull_request:
+    paths:
+      - "Cargo.toml"
+      - ".github/workflows/publish.yml"
+
+jobs:
+  dry-run:
+    name: cargo publish --dry-run
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo publish --dry-run --all-features
+        # No token needed for --dry-run. Catches missing files in the tarball,
+        # manifest errors, and dependency resolution issues before a real tag.
+        run: cargo publish --dry-run --all-features
+
+  publish:
+    name: cargo publish
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Verify tag matches Cargo.toml version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          CARGO_VER=$(grep '^version =' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          if [ "$TAG" != "$CARGO_VER" ]; then
+            echo "::error::tag '$TAG' does not match Cargo.toml version '$CARGO_VER'"
+            exit 1
+          fi
+          echo "tag $TAG matches Cargo.toml version $CARGO_VER"
+      - name: cargo publish (idempotent)
+        # Idempotency guard: if this version is already on crates.io, skip.
+        # This prevents red CI when a workflow re-runs after a successful publish.
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          HTTP_CODE=$(curl -sSL -A "tracing-flight-recorder-publish-check/1.0" -o /dev/null -w '%{http_code}' \
+            "https://crates.io/api/v1/crates/tracing-flight-recorder/$TAG")
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "::notice::tracing-flight-recorder@$TAG is already published on crates.io; skipping publish step."
+            exit 0
+          fi
+          if [ "$HTTP_CODE" != "404" ]; then
+            echo "::error::unexpected crates.io API response (HTTP $HTTP_CODE) for version $TAG; aborting"
+            exit 1
+          fi
+          echo "tracing-flight-recorder@$TAG not yet published; proceeding."
+          cargo publish --all-features
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

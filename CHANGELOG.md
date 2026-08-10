@@ -49,7 +49,7 @@ _No changes yet._
 - Softened timing claim in `DEFAULT_CAPACITY` docs: "30-60 seconds" → honest "20-100 seconds at 10-50 events/sec" range
 - Extracted collision-resolution logic into testable `resolve_collision_path` function with injectable `COLLISION_LIMIT` (9999) constant
 - Examples now write to `std::env::temp_dir()` instead of repository root
-- Tightened `exclude` list — internal docs (`/docs/status`, `/docs/planning`, `/AGENTS.md`) excluded from published crate (150.9KiB → 90.2KiB)
+- Tightened `exclude` list — internal docs (`/docs/status`, `/docs/planning`, `/AGENTS.md`, `/CONTRIBUTING.md`, `/TODO_LIST.md`, `/FEATURES.md`, `/ROADMAP.md`) excluded from published crate (150.9KiB → 81.7KiB, 23 → 16 files)
 
 ### Fixed
 

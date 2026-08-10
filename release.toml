@@ -1,0 +1,37 @@
+# cargo-release configuration — see https://github.com/crate-ci/cargo-release
+#
+# Install with: cargo install cargo-release
+# Cut a release with:
+#   cargo release version 0.1.1 --execute
+#   cargo release publish --execute
+# (or one command: cargo release 0.1.1 --execute)
+
+# We do NOT want cargo-release to push tags or GitHub releases automatically —
+# the release notes are hand-curated via `gh release create` after the tag
+# exists. Set `push=false` so cargo-release stops before pushing.
+push = false
+
+# Publish to crates.io.
+publish = true
+
+# Confirm before doing anything destructive.
+confirm = true
+
+# Pre-release hook: move the CHANGELOG [Unreleased] section to a versioned section.
+pre-release-replacements = [
+  { file = "CHANGELOG.md", search = "## \\[Unreleased\\]", replace = "## [{{version}}] - {{date}}", exactly = 1 },
+]
+
+# Tag format: v0.1.0 (matches the existing convention).
+tag-prefix = "v"
+tag-name = "v{{version}}"
+
+# Sign tags with the default git signing key.
+sign-tag = true
+
+# Also sign commits (not just tags). Requires a configured gpg or ssh
+# signing key in git config (`user.signingkey`, `commit.gpgsign`).
+sign-commit = true
+
+# Don't enable incremental version bumping; we bump explicitly.
+enable-features = []

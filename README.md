@@ -1,5 +1,11 @@
 # tracing-flight-recorder
 
+[![crates.io](https://img.shields.io/crates/v/tracing-flight-recorder.svg)](https://crates.io/crates/tracing-flight-recorder)
+[![docs.rs](https://docs.rs/tracing-flight-recorder/badge.svg)](https://docs.rs/tracing-flight-recorder)
+[![CI](https://github.com/LarsArtmann/tracing-flight-recorder/actions/workflows/ci.yml/badge.svg)](https://github.com/LarsArtmann/tracing-flight-recorder/actions/workflows/ci.yml)
+[![msrv 1.86](https://img.shields.io/static/v1?label=msrv&message=1.86&color=blue)](https://github.com/LarsArtmann/tracing-flight-recorder/blob/master/Cargo.toml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 In-memory ring-buffer flight recorder for [`tracing`] events.
 
 Inspired by Go 1.25's [`trace.FlightRecorder`], this crate provides a

@@ -1,16 +1,39 @@
 version: 2
+
+# Weekly dependency updates for cargo and github-actions.
+# Auto-merge is enabled for low-risk bumps; branch protection must also
+# allow auto-merge (run `gh repo edit --enable-auto-merge` once).
+
 updates:
-  - package-ecosystem: "cargo"
-    directory: "/"
+  # GitHub Actions versions in .github/workflows/
+  - package-ecosystem: github-actions
+    directory: /
     schedule:
-      interval: "weekly"
+      interval: weekly
+      day: monday
     open-pull-requests-limit: 5
     labels:
-      - "dependencies"
-  - package-ecosystem: "github-actions"
-    directory: "/"
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: "ci(actions)"
+    auto-merge:
+      allow: auto-merge
+      method: squash
+
+  # Cargo dependencies in Cargo.toml / Cargo.lock
+  - package-ecosystem: cargo
+    directory: /
     schedule:
-      interval: "weekly"
+      interval: weekly
+      day: monday
     open-pull-requests-limit: 5
     labels:
-      - "dependencies"
+      - dependencies
+      - cargo
+    commit-message:
+      prefix: "deps"
+    auto-merge:
+      allow:
+        - dependency-type: "all"
+      method: squash

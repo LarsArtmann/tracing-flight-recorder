@@ -8,12 +8,15 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
+  # Pin proptest's per-property case count so CI is deterministic.
+  PROPTEST_CASES: 256
 
 jobs:
   test:
-    name: Test & Lint
+    name: Test + Clippy + Fmt
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         rust: [stable, beta]
     steps:
@@ -24,13 +27,15 @@ jobs:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
       - name: Format check
-        run: cargo fmt --check
+        run: cargo fmt --all -- --check
       - name: Clippy (all features)
         run: cargo clippy --all-features --all-targets -- -D warnings
       - name: Test (all features)
         run: cargo test --all-features
       - name: Build examples
         run: cargo build --all-features --examples
+      - name: Cargo.lock up to date
+        run: cargo fetch --locked
 
   msrv:
     name: MSRV (1.86)
@@ -52,6 +57,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build docs
+        env:
+          RUSTDOCFLAGS: "-D warnings"
         run: cargo doc --all-features --no-deps
 
   publish-check:
@@ -62,13 +69,19 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: cargo publish --dry-run
-        run: cargo publish --dry-run
+        run: cargo publish --dry-run --all-features
 
-  audit:
-    name: Security Audit
+  supply-chain:
+    name: cargo audit + cargo deny
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v2.0.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+      - name: cargo audit (RustSec advisories)
+        run: cargo audit
+      - name: cargo deny (advisories + licenses + bans + sources)
+        run: cargo deny check

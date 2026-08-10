@@ -56,15 +56,19 @@ Raw ideas:
 - Panic-hook integration that dumps before the process exits
 - Macro helper: `fr_on_error!(recorder, || { ... })`
 
-### 5. Crates.io publication readiness
+### 5. Crates.io publication
 
-The crate is unreleased at `0.1.0`. Moving toward a first published release.
+v0.1.0 is tagged locally. The remaining step is publishing to crates.io,
+which requires a crates.io API token and `cargo publish`. See
+[`docs/RELEASE.md`](RELEASE.md) for the full release runbook.
 
 Raw ideas:
 
-- Verify `Cargo.toml` metadata renders on crates.io
+- Publish v0.1.0 to crates.io
+- Verify `Cargo.toml` metadata renders correctly on crates.io
+- Verify docs.rs builds with the `openapi` feature
+- Set up `CARGO_REGISTRY_TOKEN` secret for automated publish-on-tag
 - Add a minimal `examples/` directory (binary examples beyond doc tests)
-- Decide on `Cargo.lock` policy for a published library
 
 ## Non-goals
 
