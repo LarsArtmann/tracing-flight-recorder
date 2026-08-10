@@ -1,6 +1,6 @@
 [package]
 name = "tracing-flight-recorder"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.86"
 authors = ["Lars Artmann <lars@larsartmann.com>"]
@@ -12,7 +12,7 @@ documentation = "https://docs.rs/tracing-flight-recorder"
 readme = "README.md"
 keywords = ["tracing", "flight-recorder", "diagnostics", "ring-buffer", "debugging"]
 categories = ["development-tools::debugging", "development-tools::profiling"]
-exclude = ["/target", "/.github", "/docs/status", "/docs/planning", "/docs/RELEASE.md", "/AGENTS.md", "/CONTRIBUTING.md", "/TODO_LIST.md", "/FEATURES.md", "/ROADMAP.md"]
+exclude = ["/target", "/.github", "/docs/status", "/docs/planning", "/docs/RELEASE.md", "/AGENTS.md", "/CONTRIBUTING.md", "/TODO_LIST.md", "/FEATURES.md", "/ROADMAP.md", "/release.toml"]
 
 # Build docs.rs with the `openapi` feature so `CapturedEvent`'s `ToSchema`
 # derive appears on the published docs page. Without this, docs.rs builds

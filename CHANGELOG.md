@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 _No changes yet._
 
+## [0.1.1] - 2026-08-10
+
+### Changed
+
+- Excluded `release.toml` (maintainer-only `cargo-release` config) from the published crate — 18 → 17 files, 86.1KiB → 85.4KiB
+- Bumped `actions/checkout` from v4 to v7 across all CI workflows to silence Node.js 20 deprecation warnings
+- Corrected v0.1.0 CHANGELOG entries: accurate package size, correct CI job reference, removed internal exclude-path details
+
 ## [0.1.0] - 2026-08-10
 
 ### Added
@@ -38,7 +46,7 @@ _No changes yet._
 - Collision-limit guard tests for extracted `resolve_collision_path` function (error at limit, first-free-slot, primary-when-free)
 - `CONTRIBUTING.md` with design philosophy, ASCII data-flow diagram, and PR checklist
 - `cargo publish --dry-run` CI job to catch packaging regressions on every push/PR
-- Security audit CI job (`rustsec/audit-check@v2.0.0`)
+- `cargo audit` + `cargo deny` CI job for supply-chain security (RustSec advisories, license compliance, source bans)
 - Dependabot configuration: weekly updates for cargo and github-actions ecosystems
 
 ### Changed
@@ -49,7 +57,7 @@ _No changes yet._
 - Softened timing claim in `DEFAULT_CAPACITY` docs: "30-60 seconds" → honest "20-100 seconds at 10-50 events/sec" range
 - Extracted collision-resolution logic into testable `resolve_collision_path` function with injectable `COLLISION_LIMIT` (9999) constant
 - Examples now write to `std::env::temp_dir()` instead of repository root
-- Tightened `exclude` list — internal docs (`/docs/status`, `/docs/planning`, `/AGENTS.md`, `/CONTRIBUTING.md`, `/TODO_LIST.md`, `/FEATURES.md`, `/ROADMAP.md`) excluded from published crate (150.9KiB → 81.7KiB, 23 → 16 files)
+- Tightened `exclude` list to keep internal development files (status reports, planning docs, AGENTS.md, etc.) out of the published crate (150.9KiB → 86.1KiB, 23 → 18 files)
 
 ### Fixed
 
@@ -59,5 +67,6 @@ _No changes yet._
 
 - MSRV: 1.86, edition 2021.
 
-[Unreleased]: https://github.com/LarsArtmann/tracing-flight-recorder/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/LarsArtmann/tracing-flight-recorder/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/LarsArtmann/tracing-flight-recorder/releases/tag/v0.1.1
 [0.1.0]: https://github.com/LarsArtmann/tracing-flight-recorder/releases/tag/v0.1.0
