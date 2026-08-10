@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+_No changes yet._
+
+## [0.1.0] - 2026-08-10
+
 ### Added
 
 - Bounded in-memory ring buffer (`FlightRecorder`) with oldest-first eviction at capacity (`src/layer.rs`)
@@ -24,6 +28,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Domain language glossary documenting 20 terms across 5 categories (`docs/DOMAIN_LANGUAGE.md`)
 - README doctests wired via `#[cfg(doctest)]` — Quick Start and Retention code blocks now compile-tested (`src/lib.rs`)
 - OpenAPI schema integration test asserting all `CapturedEvent` fields appear in generated OpenAPI JSON (`src/capture.rs`)
+- Property-based eviction invariant test (proptest, 256 cases): random capacity × random event count always satisfies `len == min(events, capacity)`
+- Multi-thread stress test: 8 threads × 100 events against a shared `FlightRecorder` — no corruption, exact capacity bound
+- Poison-recovery test: recorder remains usable after a thread panics while holding the mutex lock
+- Unicode field name redaction test: documents that redaction is ASCII-substring-only (`café_token` → caught; `pässwörd` → not caught)
+- Nested-directory dump test: `dump_to_file` creates deeply nested parent directories
+- Non-JSON retention pruning test: `.txt` and `.yaml` files survive retention cleanup
+- Memory footprint measurement test: 1000 realistic events ≈ 237 KB (asserts < 1 MB ceiling)
+- Collision-limit guard tests for extracted `resolve_collision_path` function (error at limit, first-free-slot, primary-when-free)
+- `CONTRIBUTING.md` with design philosophy, ASCII data-flow diagram, and PR checklist
+- `cargo publish --dry-run` CI job to catch packaging regressions on every push/PR
+- Security audit CI job (`rustsec/audit-check@v2.0.0`)
+- Dependabot configuration: weekly updates for cargo and github-actions ecosystems
 
 ### Changed
 
@@ -31,6 +47,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Replaced leaked `monitor365` project name with neutral `my_app` in doc comments and README
 - Purged 680 committed `target/` build artifacts from git history (71MB → 188KB `.git`)
 - Softened timing claim in `DEFAULT_CAPACITY` docs: "30-60 seconds" → honest "20-100 seconds at 10-50 events/sec" range
+- Extracted collision-resolution logic into testable `resolve_collision_path` function with injectable `COLLISION_LIMIT` (9999) constant
+- Examples now write to `std::env::temp_dir()` instead of repository root
+- Tightened `exclude` list — internal docs (`/docs/status`, `/docs/planning`, `/AGENTS.md`) excluded from published crate (150.9KiB → 90.2KiB)
 
 ### Fixed
 
@@ -38,5 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## Notes
 
-- No releases tagged yet; crate version is `0.1.0` in `Cargo.toml` (unreleased). The first git tag will populate a versioned section above.
 - MSRV: 1.86, edition 2021.
+
+[Unreleased]: https://github.com/LarsArtmann/tracing-flight-recorder/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/LarsArtmann/tracing-flight-recorder/releases/tag/v0.1.0

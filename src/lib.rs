@@ -34,6 +34,16 @@
 //! ```
 //!
 //! [`trace.FlightRecorder`]: https://go.dev/blog/flight-recorder
+//!
+//! # Minimal Example
+//!
+//! ```
+//! use tracing_flight_recorder::FlightRecorder;
+//!
+//! let recorder = FlightRecorder::new(50);
+//! assert!(recorder.is_empty());
+//! assert_eq!(recorder.capacity(), 50);
+//! ```
 
 #![cfg_attr(
     test,

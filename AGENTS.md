@@ -8,7 +8,7 @@ In-memory ring-buffer flight recorder for `tracing` events. Pure Rust **library 
 cargo build                         # build the library
 cargo build --all-features          # build including the `openapi` feature (enables utoipa)
 cargo test                          # run all unit + doc tests
-cargo test --all-features           # canonical gate: 24 unit + 3 doctests (includes openapi + proptest)
+cargo test --all-features           # canonical gate: 27 unit + 4 doctests (includes openapi + proptest)
 cargo clippy --all-features --all-targets -- -D warnings   # strict lint gate
 cargo fmt --check                   # format check
 cargo doc --all-features --no-deps  # generate docs
@@ -74,4 +74,4 @@ There is a dedicated regression test guarding this: `flight_recorder_sees_events
 - **Property tests** (`proptest`) verify the eviction invariant across random capacity/event-count combinations.
 - **Concurrency tests** stress the `Arc<Mutex<VecDeque>>` under multi-thread contention (8 threads × 100 events).
 - **Memory footprint test** measures actual bytes of a 1000-event buffer (~237 KB) and asserts it stays within the README-claimed ~200-500 KB range.
-- **Collision guard test** verifies that same-second dumps in `dump_with_retention` do not overwrite each other.
+- **Collision guard** logic is extracted into `resolve_collision_path` (`layer.rs`) with an injectable `COLLISION_LIMIT` (9999) so the upper bound is unit-tested without creating thousands of files. Tests cover: same-second non-overwrite, limit-exceeded error, first-free-slot, primary-when-free.

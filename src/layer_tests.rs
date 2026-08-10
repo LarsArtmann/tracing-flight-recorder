@@ -602,3 +602,53 @@ fn memory_footprint_of_default_capacity_buffer() {
         "memory footprint {total_bytes} exceeds expected ~500KB range"
     );
 }
+
+// ── Collision limit guard test ───────────────────────────────────────
+
+#[test]
+fn resolve_collision_path_returns_error_at_limit() {
+    let dir = tempfile_dir();
+    let base = "snap-2026010T120000";
+
+    // Saturate all slots up to a small limit of 3:
+    //   {base}.json, {base}-1.json, {base}-2.json, {base}-3.json
+    std::fs::write(dir.join(format!("{base}.json")), "[]").unwrap();
+    for i in 1..=3 {
+        std::fs::write(dir.join(format!("{base}-{i}.json")), "[]").unwrap();
+    }
+
+    let err = resolve_collision_path(&dir, base, 3).unwrap_err();
+    assert_eq!(
+        err.kind(),
+        std::io::ErrorKind::AlreadyExists,
+        "exceeding the collision limit must return AlreadyExists"
+    );
+}
+
+#[test]
+fn resolve_collision_path_finds_first_free_slot() {
+    let dir = tempfile_dir();
+    let base = "snap-2026010T120000";
+
+    // Only the primary + slot 1 exist → slot 2 is free.
+    std::fs::write(dir.join(format!("{base}.json")), "[]").unwrap();
+    std::fs::write(dir.join(format!("{base}-1.json")), "[]").unwrap();
+
+    let path = resolve_collision_path(&dir, base, 3).unwrap();
+    assert_eq!(
+        path,
+        dir.join(format!("{base}-2.json")),
+        "must return the first available counter suffix"
+    );
+    assert!(!path.exists(), "returned path should not yet exist");
+}
+
+#[test]
+fn resolve_collision_path_returns_primary_when_free() {
+    let dir = tempfile_dir();
+    let base = "snap-2026010T120000";
+
+    // No files exist → primary path returned immediately.
+    let path = resolve_collision_path(&dir, base, 3).unwrap();
+    assert_eq!(path, dir.join(format!("{base}.json")));
+}

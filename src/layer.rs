@@ -141,25 +141,8 @@ impl FlightRecorder {
 
         let ts = chrono::Utc::now().format("%Y%m%dT%H%M%S");
         let base = format!("{prefix}-{ts}");
-        let path = dir.join(format!("{base}.json"));
 
-        let path = if path.exists() {
-            let mut counter: u32 = 1;
-            let mut candidate = dir.join(format!("{base}-{counter}.json"));
-            while candidate.exists() {
-                if counter >= 9999 {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::AlreadyExists,
-                        "too many same-second snapshot files (9999+)",
-                    ));
-                }
-                counter = counter.saturating_add(1);
-                candidate = dir.join(format!("{base}-{counter}.json"));
-            }
-            candidate
-        } else {
-            path
-        };
+        let path = resolve_collision_path(dir, &base, COLLISION_LIMIT)?;
 
         self.dump_to_file(&path)?;
 
@@ -167,6 +150,31 @@ impl FlightRecorder {
 
         Ok(path)
     }
+}
+
+/// Upper bound on same-second collision counter suffixes.
+const COLLISION_LIMIT: u32 = 9999;
+
+/// Resolve a unique file path for a timestamped snapshot.
+///
+/// Tries `{base}.json`, then `{base}-1.json`, `{base}-2.json`, ... up to `limit`
+/// before returning an error to prevent unbounded looping when an absurd number
+/// of same-second files already exist.
+fn resolve_collision_path(dir: &Path, base: &str, limit: u32) -> std::io::Result<PathBuf> {
+    let primary = dir.join(format!("{base}.json"));
+    if !primary.exists() {
+        return Ok(primary);
+    }
+    for counter in 1..=limit {
+        let candidate = dir.join(format!("{base}-{counter}.json"));
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        format!("too many same-second snapshot files ({limit}+)"),
+    ))
 }
 
 /// Delete oldest snapshot files in `dir` matching `prefix*.json` beyond `max_files`.

@@ -11,7 +11,7 @@ homepage = "https://github.com/LarsArtmann/tracing-flight-recorder"
 readme = "README.md"
 keywords = ["tracing", "flight-recorder", "diagnostics", "ring-buffer", "debugging"]
 categories = ["development-tools::debugging", "development-tools::profiling"]
-exclude = ["/target", "/.github", "/docs/status", "/docs/planning", "/AGENTS.md"]
+exclude = ["/target", "/.github", "/docs/status", "/docs/planning", "/AGENTS.md", "/CONTRIBUTING.md", "/TODO_LIST.md", "/FEATURES.md", "/ROADMAP.md"]
 
 [features]
 default = []

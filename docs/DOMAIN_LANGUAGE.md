@@ -40,8 +40,8 @@ appears in source code, tests, or documentation — there are no dead terms.
 
 | Term | Definition | Where used |
 |------|------------|------------|
-| **Layer** (`FlightRecorderLayer`) | A `tracing_subscriber::Layer` that receives every event passing its per-layer filter and feeds each into a `FlightRecorder`. | `FlightRecorderLayer` — `src/layer.rs:226`; `impl Layer` — `src/layer.rs:244` |
-| **Per-Layer Filter** | A `tracing_subscriber` filter applied to an individual `Layer` so the recorder captures DEBUG/TRACE while the console `fmt` layer stays at INFO. A global filter would block verbose events before they reach the recorder. | Doc comment — `src/layer.rs:221`; Quick Start — `src/lib.rs:23` |
+| **Layer** (`FlightRecorderLayer`) | A `tracing_subscriber::Layer` that receives every event passing its per-layer filter and feeds each into a `FlightRecorder`. | `FlightRecorderLayer` — `src/layer.rs:234`; `impl Layer` — `src/layer.rs:252` |
+| **Per-Layer Filter** | A `tracing_subscriber` filter applied to an individual `Layer` so the recorder captures DEBUG/TRACE while the console `fmt` layer stays at INFO. A global filter would block verbose events before they reach the recorder. | Doc comment — `src/layer.rs:229`; Quick Start — `src/lib.rs:23` |
 
 ## Optional Features
 

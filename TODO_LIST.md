@@ -15,18 +15,11 @@
 
 ## High Impact
 
-| Task                                                            | Status    | Impact | Effort | Evidence                                                                                  |
-| --------------------------------------------------------------- | --------- | ------ | ------ | ----------------------------------------------------------------------------------------- |
-| Concurrency stress test (multi-thread push + snapshot)         | 🔴 `TODO` | High   | 20min  | No multi-thread test exists; `Arc<Mutex<VecDeque>>` is thread-safe but unexercised under contention |
-| Proptest eviction invariant (push > capacity → len == capacity) | 🔴 `TODO` | Med    | 25min  | Eviction tested with fixed inputs only; no property-based testing of the invariant       |
+_(none currently)_
 
 ## Medium Impact
 
-| Task                                                                     | Status    | Impact | Effort | Evidence                                                                              |
-| ------------------------------------------------------------------------ | --------- | ------ | ------ | ------------------------------------------------------------------------------------- |
-| Poison-recovery test (panicked thread → recorder still usable)           | 🔴 `TODO` | Med    | 15min  | Poison-safe locking is a design choice but no test exercises the recovery path         |
-| Unicode field name redaction test                                        | 🔴 `TODO` | Low-Med | 10min  | `is_sensitive_field` lowercases then substring-matches; Unicode edge cases untested   |
-| Non-JSON files survive retention pruning                                 | 🔴 `TODO` | Low-Med | 10min  | `cleanup_old_snapshots` filters by `.json` extension; no test verifies non-JSON files are left alone |
+_(none currently)_
 
 ## Low Impact
 
