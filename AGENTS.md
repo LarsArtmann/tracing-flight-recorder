@@ -1,0 +1,73 @@
+# AGENTS.md
+
+In-memory ring-buffer flight recorder for `tracing` events. Pure Rust **library crate** (no binary, no `flake.nix`) — Cargo is the only build tool. Inspired by Go 1.25's `trace.FlightRecorder`: continuously buffers DEBUG/TRACE events and snapshots them on failure.
+
+## Commands
+
+```sh
+cargo build                         # build the library
+cargo build --all-features          # build including the `openapi` feature (enables utoipa)
+cargo test                          # run all unit + doc tests
+cargo test --all-features           # run tests with the openapi feature active
+cargo clippy --all-features         # lint; see "Strict Clippy" below — must pass clean
+cargo clippy -- -D warnings         # treat warnings as errors
+cargo doc --no-deps --open          # generate docs
+```
+
+Always run clippy with `--all-features` so the `openapi`-gated code paths are checked. MSRV is **1.86**, edition 2021.
+
+## Strict Clippy — Read Before Writing Any Code
+
+This crate enforces an unusually harsh clippy configuration (`[lints.clippy]` in `Cargo.toml`). In **non-test** code the following are `deny` and will break the build:
+
+- `unwrap_used`, `expect_used` — no `.unwrap()` / `.expect()`
+- `indexing_slicing` — no `slice[i]`; use `get()` / `get_mut()`
+- `string_slice` — no `s[a..b]` on strings
+- `arithmetic_side_effects` — no `+`/`-`/`*` without checked/wrapping/saturating ops
+- `as_conversions` — no `as` casts; use `From`/`Into`/`try_from`
+- `panic`, `unreachable`, `todo`, `unimplemented`, `exit`, `panic_in_result_fn`
+- `pedantic` and `nursery` lints (entire groups, `deny`)
+
+**How the crate itself complies** — patterns to copy:
+- Mutex locks recover from poison explicitly: `lock().unwrap_or_else(PoisonError::into_inner)`. This is intentional (poison shouldn't kill the recorder); don't "fix" it to propagate.
+- Fallible ops return `Result` and propagate with `?` (see `dump_to_file`, `dump_to_json`).
+- Formatting uses `write!(buf, ...)` with `let _ =` to discard the infallible `Result` for `String`.
+
+**Test code is exempt.** Two mechanisms relax these lints in tests — match the existing pattern when adding tests:
+- `src/lib.rs` carries `#![cfg_attr(test, allow(...))]` covering the whole crate for test builds.
+- `src/layer.rs` adds a local `#[allow(...)]` on its `#[cfg(test)] mod tests`.
+- In tests you may freely use `.unwrap()` / `.expect()` / indexing.
+
+## Code Organization
+
+Four source files, all under `src/`:
+
+| File             | Responsibility                                                                                          |
+| ---------------- | ------------------------------------------------------------------------------------------------------- |
+| `lib.rs`         | Crate docs, lint configuration (crate-level `cfg_attr(test, allow)`), module wiring, public re-exports, `DEFAULT_CAPACITY` constant. |
+| `capture.rs`     | `CapturedEvent` struct (the buffered unit), `FieldVisitor` (`tracing::field::Visit` impl), secret redaction (`is_sensitive_field`), `level_to_string`. Has inline `#[cfg(test)] mod tests`. |
+| `layer.rs`       | `FlightRecorder` (the `Arc<Mutex<VecDeque>>` ring buffer + dump methods) and `FlightRecorderLayer` (`tracing_subscriber::Layer` impl). Wires its tests in via `#[path = "layer_tests.rs"]`. |
+| `layer_tests.rs` | Tests for `layer.rs`. Lives in its own file (not inline) — included by `#[cfg(test)] #[path = "layer_tests.rs"] mod tests;` at the bottom of `layer.rs`. Use `use super::*;` and `use crate::capture::CapturedEvent;`. |
+
+**Data flow:** `tracing` event → `FlightRecorderLayer::on_event` → `CapturedEvent::from_event` (runs `FieldVisitor`, which redacts sensitive fields) → `FlightRecorder::push` (evicts oldest if at capacity) → `VecDeque` ring buffer. Snapshot/dump methods clone and serialize on demand.
+
+## Conventions
+
+- **Public API is the `tracing` ecosystem types**: `FlightRecorder`, `FlightRecorderLayer`, `CapturedEvent`, `FieldVisitor`. All are re-exported from `lib.rs`.
+- **`FlightRecorder` is `Clone` and cheap** — all clones share one `Arc<Mutex<VecDeque>>`. Pattern: create one, clone it into the layer, keep the original for dumping.
+- **Docs use `///` + module-level `//!`**. Doc examples are `no_run`. Public items have `# Errors` / `# Panics` sections where relevant.
+- **`#[must_use]`** on all constructors and accessors returning owned data.
+- **Secret redaction is automatic and over-broad**: any field whose name contains `token`, `password`, `secret`, `api_key`/`apikey`, `credential`, `passphrase`, or `private_key` (case-insensitive, substring match) is stored as `[REDACTED]`. Over-redaction is intentional — do not narrow it without strong reason.
+- **Feature flag `openapi`**: enables `dep:utoipa` and derives `utoipa::ToSchema` on `CapturedEvent` behind `#[cfg_attr(feature = "openapi", derive(...))]`. When adding fields to `CapturedEvent`, no extra work is needed — the derive picks them up automatically under the feature.
+
+## Critical Gotcha: Per-Layer Filtering
+
+**This is the central design insight of the crate and the #1 integration pitfall.** A *global* `EnvFilter` on the subscriber drops DEBUG/TRACE events before they reach any layer — defeating the entire purpose of the flight recorder. Consumers **must** give `FlightRecorderLayer` its own broader per-layer filter (e.g. `EnvFilter::new("my_app=debug,warn")`) and a narrower filter to the console `fmt` layer.
+
+There is a dedicated regression test guarding this: `flight_recorder_sees_events_blocked_by_other_layer_filter` in `layer_tests.rs`. When changing the layer, ensure that test still passes.
+
+## Testing Approach
+
+- **End-to-end tests install a real subscriber** via `tracing::subscriber::with_default(subscriber, || { ... })` rather than mocking — emit real `tracing::debug!`/`info!`/`warn!` events and assert they land in the recorder. Prefer this style for new layer/pipeline tests.
+- **Temp files**: no `tempfile` crate dependency. Tests build a unique dir from `std::env::temp_dir()` + PID + nanos (`tempfile_dir()` helper in `layer_tests.rs`). Reuse that helper rather than adding a dependency.
+- **Ring-buffer edge cases** (capacity 1, eviction order, clone-sharing) have explicit unit tests — keep them green when touching `push`/`snapshot`.
