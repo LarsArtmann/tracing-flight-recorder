@@ -1,0 +1,37 @@
+[package]
+name = "tracing-flight-recorder"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.86"
+authors = ["Lars Artmann <lars@larsartmann.com>"]
+license = "Apache-2.0"
+description = "In-memory ring-buffer flight recorder for tracing events. Inspired by Go 1.25's trace.FlightRecorder — continuously buffers DEBUG/TRACE events, snapshots on failure."
+repository = "https://github.com/LarsArtmann/tracing-flight-recorder"
+homepage = "https://github.com/LarsArtmann/tracing-flight-recorder"
+readme = "README.md"
+keywords = ["tracing", "flight-recorder", "diagnostics", "ring-buffer", "debugging"]
+categories = ["development-tools::debugging", "development-tools::profiling"]
+exclude = ["/target", "/.github"]
+
+[features]
+default = []
+# Enables `utoipa::ToSchema` derive on `CapturedEvent` for OpenAPI documentation.
+openapi = ["dep:utoipa"]
+
+[dependencies]
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["registry", "env-filter"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+utoipa = { version = "4", optional = true }
+
+[lints.clippy]
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"
+string_slice = "deny"
+as_conversions = "allow"
+cast_possible_truncation = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+cast_possible_wrap = "allow"
