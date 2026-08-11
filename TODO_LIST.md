@@ -19,8 +19,7 @@
 
 | Task | Status | Effort | Notes |
 |------|--------|--------|-------|
-| Tag and publish v0.2.0 | 🔴 `TODO` | ~45m | Code is ready, tests pass (88 unit + 10 doc), clippy clean, CHANGELOG written. `Cargo.toml` is at `0.2.0`. Follow `docs/RELEASE.md` checklist: verify `cargo publish --dry-run --all-features`, tag, push. |
-| Tag and publish v0.3.0 | 🔴 `TODO` | ~45m | Depends on v0.2.0 shipping first. Bump `Cargo.toml` to `0.3.0`, move CHANGELOG `[Unreleased]` → `[0.3.0]`, update README version refs `0.2` → `0.3`. |
+| Tag and publish v0.3.0 | 🔴 `TODO` | ~15m | **v0.2.0 skipped** — was never tagged, no users have it; all changes batched into v0.3.0. `Cargo.toml` is at `0.3.0`, CHANGELOG merged, `cargo publish --dry-run --all-features` passes. Remaining: commit, `git tag v0.3.0`, `git push origin v0.3.0` (triggers `publish.yml`), verify crates.io + docs.rs. |
 
 ## Low Impact — Features & Polish
 

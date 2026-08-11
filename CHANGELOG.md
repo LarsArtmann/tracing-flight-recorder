@@ -7,72 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-The next release will be **0.3.0** — it contains a breaking change to the
-default JSON formatting of the dump methods.
+_Nothing yet._
+
+## [0.3.0] - 2026-08-11
+
+_First release since v0.1.1 — v0.2.0 was never tagged, so both batches of
+work are combined here. 8 breaking changes total._
 
 ### Added
 
-- **`DumpEvent.success` and `DumpEvent.error`** — the `on_dump` callback now receives `success: bool` and `error: Option<String>` fields. Trigger dumps that fail (disk full, permission denied) fire the callback with `success: false` and a human-readable error so the host can alert on the missed capture — a diagnostic tool that silently loses data is worse than no tool at all (`src/capture.rs`, `src/layer.rs`)
-- **`Debug` for `FlightRecorderLayer`** — operators can now `dbg!()` the layer to inspect trigger state, dump directory, and capture flag (`src/layer.rs`)
-- **`dump_envelope_to_writer` / `dump_envelope_to_writer_pretty`** — streams the envelope as compact or indented JSON to any `impl Write`, matching the array API's writer variants (`src/layer.rs`)
-- **`examples/compression.rs`** — runnable example demonstrating gzip-compressed dumps (`examples/`)
-- **`examples/observability.rs`** — runnable example demonstrating the `on_dump` observability hook (`examples/`)
-- **Observability hooks** — `DumpEvent` (path, `bytes_written`, `duration`, `trigger_reason`, `source`, `success`, `error`) and `DumpSource` (`Manual` / `Trigger`). Register a callback with `FlightRecorder::with_on_dump`; it fires after every dump that persists to a file (manual file/retention dumps **and** automatic trigger dumps), with accurate byte count and wall-clock duration. The callback is best-effort: a panicking observer is contained via `catch_unwind` and never destabilizes the recorder or trigger path (`src/layer.rs`, `src/capture.rs`)
-- **Gzip compression** — optional `gzip` feature (behind `dep:flate2`) adds `dump_to_file_gz` and `dump_envelope_to_file_gz`, writing snapshots 5-10× smaller. The `on_dump` callback reports the *compressed* byte count (`src/layer.rs`)
-- **Criterion benchmarks** — `benches/push_dump.rs` covers the `on_event` capture path, `snapshot`, and `dump_to_json` at varying buffer sizes. Run with `cargo bench`
-- **Allocation-count profiling** — an `#[ignore]`d test backed by a counting global allocator characterizes the `on_event` hot path at ~9 allocations/event. Run with `cargo test profile_allocations -- --ignored --nocapture`
-- **Edge-case tests** — 12-deep nested span hierarchy, `i128`/`u128` min/max boundary values, and `dump_to_file` into a read-only directory (permission-error propagation)
-- **Redaction fuzz test** — `proptest` cross-validates the zero-allocation byte-window matcher against an independent `to_lowercase().contains` reference implementation (512 cases) (`src/capture.rs`)
-
-### Changed
-
-- **BREAKING: `Trigger` trait now requires `std::fmt::Debug`** — the supertrait bound was added to enable `Debug` for `FlightRecorderLayer`. Built-in triggers (`LevelTrigger`, `OnceTrigger`) derive `Debug`. Custom trigger implementations must add `#[derive(Debug)]` or a manual `Debug` impl (`src/trigger.rs`)
-- **BREAKING: `DumpEvent` has two new required fields** — `success: bool` and `error: Option<String>`. Code that constructs `DumpEvent` manually must add these fields (`src/capture.rs`)
-- **BREAKING: dump methods now default to compact JSON.** `dump_to_json`, `dump_to_writer`, `dump_to_file`, `dump_envelope_to_json`, and `dump_envelope_to_file` emit compact output instead of pretty-printed. New `_pretty` companions (`dump_to_json_pretty`, `dump_to_writer_pretty`, `dump_to_file_pretty`, `dump_envelope_to_json_pretty`, `dump_envelope_to_file_pretty`) provide indented output for human reading. Compact is the better default because snapshots are frequently persisted automatically (trigger dumps, retention pruning) where size matters. Code that *parses* the output is unaffected — only whitespace differs
-- **Retention dumps are compact** — `dump_with_retention` and `dump_with_retention_envelope` now write compact JSON (consistent with the new default)
-
-### Fixed
-
-- **`OnceTrigger` race condition** — under concurrent error bursts, the non-atomic `load` → `store` pattern allowed multiple threads to pass the check before any `store` landed, producing multiple dumps despite the "once" guarantee. Now uses `compare_exchange(false, true, AcqRel, Acquire)` for true atomic test-and-set: exactly one dump is produced regardless of thread scheduling (`src/trigger.rs`)
-- **`fire_dump` silently swallowed errors** — `on_event` did `let _result = self.fire_dump(&reason)`, discarding I/O errors from trigger dumps. If the dump failed (disk full, permissions), the operator thought the incident was captured but it wasn't. The `OnceTrigger` made it worse: token consumed, dump failed, no retry. Now `fire_dump` fires the `on_dump` callback with `success: false` and a human-readable error (`src/layer.rs`)
-
-## [0.2.0] - 2026-08-11
-
-### Added
-
-- **Span context capture** — events fired inside spans now record their full span hierarchy (names + key-value fields, root-first) via the new `CapturedEvent.spans: Vec<SpanContext>` field. The layer implements `on_new_span` and `on_record` to store span fields as extension data through `LookupSpan`, then `on_event` walks the scope to build the hierarchy. This was the #1 development priority identified in the comparative review (`src/capture.rs`, `src/layer.rs`)
-- **`SpanContext` struct** — public type re-exported from the crate root: `name: String` + `fields: Vec<(String, String)>` (`src/capture.rs`)
-- **`dump_to_writer`** — streams pretty-printed JSON to any `impl Write` without buffering the full string (`src/layer.rs`)
-- **`dump_to_json_lines`** — NDJSON output (one compact JSON object per line) for stream ingestion into log pipelines (`src/layer.rs`)
-- **`dump_to_writer_lines`** — NDJSON streaming to any `impl Write` without buffering (`src/layer.rs`)
-- **Expanded redaction patterns** — added `authorization`, `auth`, `bearer`, `cookie`, `session_id`, `access_code` to the sensitive-field pattern list (14 total patterns, case-insensitive substring match) (`src/capture.rs`)
-- **`examples/span_context.rs`** — runnable example demonstrating span context capture with nested spans (`examples/`)
-- **README "Span Context Capture" section** with code example showing nested spans and the resulting `spans` field
-- **Trigger system** — automatic snapshot-on-failure via the `Trigger` trait, `LevelTrigger` (fires at/above a severity), and `OnceTrigger` (fires at most once until `reset`). Wire one in with `FlightRecorderLayer::with_dump_on(trigger, dir, prefix, max_files)`; when the trigger fires the buffer is written automatically as an envelope with the trigger's name as `trigger_reason`. This is the central value proposition of a flight recorder: zero I/O until something goes wrong, then a self-describing snapshot is persisted with no caller wiring (`src/trigger.rs`, `src/layer.rs`)
-- **Dump metadata envelope** — `FlightRecorderDump` struct wrapping events with `schema_version`, `captured_at`, `crate_version`, `event_count`, and `trigger_reason`. Available via `dump_envelope`, `dump_envelope_to_json`, `dump_envelope_to_file`, and `dump_with_retention_envelope`. Existing array-only dump methods are unchanged for backward compatibility (`src/capture.rs`, `src/layer.rs`)
+- **Span context capture** — events fired inside spans now record their full span hierarchy (names + key-value fields, root-first) via the new `CapturedEvent.spans: Vec<SpanContext>` field. The layer implements `on_new_span` and `on_record` to store span fields as extension data through `LookupSpan`, then `on_event` walks the scope to build the hierarchy (`src/capture.rs`, `src/layer.rs`)
+- **`SpanContext` struct** — public type re-exported from the crate root: `name: String` + `fields: Arc<Vec<(String, String)>>` (`src/capture.rs`)
+- **Trigger system** — automatic snapshot-on-failure via the `Trigger` trait, `LevelTrigger` (fires at/above a severity), and `OnceTrigger` (fires at most once until `reset`). Wire one in with `FlightRecorderLayer::with_dump_on(trigger, dir, prefix, max_files)`; when the trigger fires the buffer is written automatically as an envelope with the trigger's name as `trigger_reason` (`src/trigger.rs`, `src/layer.rs`)
+- **Dump metadata envelope** — `FlightRecorderDump` struct wrapping events with `schema_version`, `captured_at`, `crate_version`, `event_count`, and `trigger_reason`. Available via `dump_envelope`, `dump_envelope_to_json`, `dump_envelope_to_file`, `dump_envelope_to_writer`, and `dump_with_retention_envelope`. Existing array-only dump methods remain for backward compatibility (`src/capture.rs`, `src/layer.rs`)
 - **`DUMP_SCHEMA_VERSION`** constant (currently `1`) so envelope consumers can branch on a stable integer (`src/capture.rs`)
-- **Configurable span context capture** — `FlightRecorderLayer::with_span_capture(recorder, bool)` disables span field storage and per-event scope walking for high-throughput pipelines that don't need request context. `new()` defaults to capture-on as before (`src/layer.rs`)
-- **`Arc<Vec<…>>` span field sharing** — `SpanContext.fields` is now `Arc<Vec<(String, String)>>`, so all events inside the same span share one allocation (O(1) reference bump per event instead of an O(fields) deep copy). Updates via `span.record()` use clone-on-write so already-captured events keep their original field snapshot. Enabled by serde's `rc` feature and utoipa's `rc_schema` feature; serializes as a plain JSON array (`src/capture.rs`, `src/layer.rs`)
+- **Observability hooks** — `DumpEvent` (path, `bytes_written`, `duration`, `trigger_reason`, `source`, `success`, `error`) and `DumpSource` (`Manual` / `Trigger`). Register a callback with `FlightRecorder::with_on_dump`; it fires after every dump that persists to a file. The callback is best-effort: a panicking observer is contained via `catch_unwind` (`src/layer.rs`, `src/capture.rs`)
+- **`DumpEvent.success` and `DumpEvent.error`** — the `on_dump` callback receives `success: bool` and `error: Option<String>`. Trigger dumps that fail (disk full, permission denied) fire the callback with `success: false` and a human-readable error so the host can alert on the missed capture (`src/capture.rs`, `src/layer.rs`)
+- **`Debug` for `FlightRecorderLayer`** — operators can now `dbg!()` the layer to inspect trigger state, dump directory, and capture flag (`src/layer.rs`)
+- **Gzip compression** — optional `gzip` feature (behind `dep:flate2`) adds `dump_to_file_gz` and `dump_envelope_to_file_gz`, writing snapshots 5-10× smaller. The `on_dump` callback reports the *compressed* byte count (`src/layer.rs`)
+- **Configurable span context capture** — `FlightRecorderLayer::with_span_capture(recorder, bool)` disables span field storage for high-throughput pipelines. `new()` defaults to capture-on (`src/layer.rs`)
+- **`Arc<Vec<…>>` span field sharing** — `SpanContext.fields` is `Arc<Vec<(String, String)>>`, so all events inside the same span share one allocation. Updates via `span.record()` use clone-on-write (`src/capture.rs`, `src/layer.rs`)
+- **`dump_to_writer`** — streams JSON to any `impl Write` (`src/layer.rs`)
+- **`dump_to_json_lines`** — NDJSON output (one compact JSON object per line) for stream ingestion (`src/layer.rs`)
+- **`dump_to_writer_lines`** — NDJSON streaming to any `impl Write` (`src/layer.rs`)
+- **`dump_envelope_to_writer` / `dump_envelope_to_writer_pretty`** — streams the envelope as compact or indented JSON to any `impl Write` (`src/layer.rs`)
+- **Expanded redaction patterns** — added `authorization`, `auth`, `bearer`, `cookie`, `session_id`, `access_code` to the sensitive-field pattern list (14 total, case-insensitive substring match) (`src/capture.rs`)
+- **Criterion benchmarks** — `benches/push_dump.rs` covers the `on_event` capture path, `snapshot`, and `dump_to_json` at varying buffer sizes
+- **Allocation-count profiling** — an `#[ignore]`d test backed by a counting global allocator characterizes the `on_event` hot path at ~9 allocations/event
+- **Runnable examples** — `span_context.rs`, `compression.rs`, `observability.rs` added to the existing set (`examples/`)
+- **Edge-case & fuzz tests** — 12-deep nested span hierarchy, `i128`/`u128` min/max, read-only directory dump, and a 512-case proptest cross-validating the zero-allocation redaction matcher
 
 ### Changed
 
-- **BREAKING: `CapturedEvent` has a new required field** — `spans: Vec<SpanContext>`. Code that constructs `CapturedEvent` manually must add `spans: Vec::new()` (or populate it). Events captured through the layer are populated automatically
-- **BREAKING: `FlightRecorderLayer` now requires `S: Subscriber + for<'lookup> LookupSpan<'lookup>`** — the `Layer` impl bound was tightened to enable span context capture. Subscribers built via `tracing_subscriber::registry()` already implement `LookupSpan`, so most users are unaffected
-- **BREAKING: `CapturedEvent.level` is now `Cow<'static, str>`** instead of `String` — eliminates one heap allocation per event since the 5 known `tracing::Level` variants are stored as `Cow::Borrowed` (zero-copy). Serializes and deserializes identically
-- **BREAKING: `SpanContext.fields` is now `Arc<Vec<(String, String)>>`** instead of `Vec<(String, String)>` — serializes identically (serde `rc`) and auto-derefs to `Vec`/slice, so most reads (`.iter()`, `.len()`, `.is_empty()`) compile unchanged. Code that moves the `Vec` out of the field must add `.as_ref()` or dereference
-- **`push` is now `pub(crate)`** — prevents external callers from injecting synthetic events into the diagnostic record
-- **`FieldVisitor` removed from public re-exports** — it remains `pub` in the private `capture` module (crate-internal) but is no longer part of the public API surface
-- **Zero-allocation redaction matching** — `is_sensitive_field` now uses byte-level `windows()` + `eq_ignore_ascii_case` instead of `to_lowercase()`, eliminating one heap allocation per field name per event
-- **Per-sensitive-field allocation eliminated** — `record_common` now takes `&str` instead of `String`, so sensitive `record_str` fields skip the value formatting entirely (was: format value → discard → format `"[REDACTED]"`; now: just format `"[REDACTED]"`)
-- **`REDACTED` constant** — extracted `"[REDACTED]"` literal to `const REDACTED: &str` for clarity
+- **BREAKING: `CapturedEvent` has a new required field** — `spans: Vec<SpanContext>`. Code that constructs `CapturedEvent` manually must add `spans: Vec::new()`. Events captured through the layer are populated automatically
+- **BREAKING: `FlightRecorderLayer` now requires `S: Subscriber + for<'lookup> LookupSpan<'lookup>`** — enables span context capture. Subscribers built via `tracing_subscriber::registry()` already implement `LookupSpan`
+- **BREAKING: `CapturedEvent.level` is now `Cow<'static, str>`** instead of `String` — eliminates one heap allocation per event. Serializes identically
+- **BREAKING: `SpanContext.fields` is now `Arc<Vec<(String, String)>>`** — serializes identically (serde `rc`); auto-derefs so most reads compile unchanged
+- **BREAKING: `Trigger` trait now requires `std::fmt::Debug`** — enables `Debug` for `FlightRecorderLayer`. Built-in triggers derive `Debug`. Custom triggers must add `#[derive(Debug)]` or a manual impl (`src/trigger.rs`)
+- **BREAKING: `DumpEvent` has two new required fields** — `success: bool` and `error: Option<String>`. Code that constructs `DumpEvent` manually must add these fields (`src/capture.rs`)
+- **BREAKING: dump methods now default to compact JSON.** `dump_to_json`, `dump_to_writer`, `dump_to_file`, `dump_envelope_to_json`, and `dump_envelope_to_file` emit compact output. New `_pretty` companions provide indented output. Compact is the better default because snapshots are frequently persisted automatically (trigger dumps, retention) where size matters
+- **BREAKING: retention dumps are compact** — `dump_with_retention` and `dump_with_retention_envelope` write compact JSON (consistent with the new default)
+- **`push` is now `pub(crate)`** — prevents external callers from injecting synthetic events
+- **`FieldVisitor` removed from public re-exports** — remains `pub` in the internal `capture` module but is not part of the public API surface
+- **Zero-allocation redaction matching** — `is_sensitive_field` uses byte-level `windows()` + `eq_ignore_ascii_case` instead of `to_lowercase()`, eliminating one allocation per field name per event
+- **Per-sensitive-field allocation eliminated** — `record_common` takes `&str` instead of `String`, so sensitive fields skip value formatting
+- **`REDACTED` constant** — extracted `"[REDACTED]"` literal to `const REDACTED: &str`
 - **`max_files = 0` means unlimited** — `dump_with_retention(_, _, 0)` no longer deletes its own dump. Matches the Go sibling project's convention
 - README dependency claim corrected: "Zero non-tracing dependencies" → "Minimal dependencies — tracing ecosystem + serde/chrono for serialization"
-- Memory footprint test now measures true deep size (every `String`/`Vec` **capacity**, not just `len()`), revealing the 1000-event buffer is ~385 KB (previously reported ~237 KB — a 62% undercount)
+- Memory footprint test now measures true deep size (every `String`/`Vec` capacity, not just `len()`), revealing ~385 KB for 1000 events
 
 ### Fixed
 
-- **capacity=0 retained 1 event** — `FlightRecorder::new(0)` silently stored 1 event because `pop_front()` on an empty deque is a no-op, then `push_back` ran anyway. Now `push()` returns early when `capacity == 0` (`src/layer.rs:41`)
-- **`dump_with_retention(_, _, 0)` deleted its own dump** — `cleanup_old_snapshots` with `max_files=0` computed `excess = 1` and deleted the snapshot that was just written (silent data loss). Now treats `max_files=0` as "unlimited" — no cleanup performed (`src/layer.rs:227`)
+- **`OnceTrigger` race condition** — under concurrent error bursts, the non-atomic `load` → `store` pattern allowed multiple dumps. Now uses `compare_exchange(false, true, AcqRel, Acquire)` for true atomic test-and-set: exactly one dump regardless of thread scheduling (`src/trigger.rs`)
+- **`fire_dump` silently swallowed errors** — `on_event` discarded I/O errors from trigger dumps via `let _result =`. Now `fire_dump` fires the `on_dump` callback with `success: false` and a human-readable error (`src/layer.rs`)
+- **capacity=0 retained 1 event** — `FlightRecorder::new(0)` silently stored 1 event because `pop_front()` on an empty deque is a no-op. Now `push()` returns early when `capacity == 0` (`FlightRecorder::push`)
+- **`dump_with_retention(_, _, 0)` deleted its own dump** — `cleanup_old_snapshots` with `max_files=0` computed `excess = 1` and deleted the snapshot that was just written. Now treats `max_files=0` as "unlimited" — no cleanup performed (`cleanup_old_snapshots`)
 
 ## [0.1.1] - 2026-08-10
 
@@ -132,7 +121,7 @@ default JSON formatting of the dump methods.
 
 - MSRV: 1.86, edition 2021.
 
-[Unreleased]: https://github.com/LarsArtmann/tracing-flight-recorder/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/LarsArtmann/tracing-flight-recorder/releases/tag/v0.2.0
+[Unreleased]: https://github.com/LarsArtmann/tracing-flight-recorder/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/LarsArtmann/tracing-flight-recorder/releases/tag/v0.3.0
 [0.1.1]: https://github.com/LarsArtmann/tracing-flight-recorder/releases/tag/v0.1.1
 [0.1.0]: https://github.com/LarsArtmann/tracing-flight-recorder/releases/tag/v0.1.0

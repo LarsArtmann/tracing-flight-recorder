@@ -464,3 +464,58 @@ The plan assumes:
 - Does not invent tasks beyond what `TODO_LIST.md`, `ROADMAP.md`, and the status report's 50-item list contain.
 - Does not address Go sibling project issues (different repo).
 - Does not split or merge Cargo modules (no go-modularize needed — single crate).
+
+---
+
+## Resolution
+
+**Executed:** 2026-08-11, two sessions (P0→P2 + cleanup pass).
+
+### Tasks completed
+
+| ID | Status | Outcome |
+|----|--------|---------|
+| M1 | **Resolved differently** | v0.2.0 was never tagged and no users have it. Decision: **skip v0.2.0, batch everything into v0.3.0** (see Decision 1 below). |
+| M2 | **Done** | All 4 living docs verified against code. DOMAIN_LANGUAGE.md rewritten with symbol-name citations. AGENTS.md updated (docs.rs features fix, `with_dump_on` ordering gotcha, trigger system conventions). CONTRIBUTING.md dump method list updated to 18 variants. |
+| M3 | **Done** | `OnceTrigger` now uses `compare_exchange(false, true, AcqRel, Acquire)`. Concurrent stress test (16 threads) asserts exactly 1 fire. |
+| M4 | **Done** | `DumpEvent` extended with `success: bool` + `error: Option<String>`. `fire_dump` handles errors internally, fires callback with failure details. `write_and_report`/`write_gz_and_report` report `success: true`. |
+| M5 | **Done** | `Trigger` trait gains `Debug` supertrait. `LevelTrigger`, `OnceTrigger`, `DumpConfig` derive `Debug`. Manual `Debug` for `FlightRecorderLayer`. |
+| M6/M7 | **Merged into single v0.3.0 release** | See Decision 1. |
+| M8 | **Done** | 3 pretty-variant tests added (writer, file, envelope-file). |
+| M9 | **Done** | 3 on_dump coverage tests added (retention, envelope-file, in-memory negative). |
+| M10 | **Done** | `examples/compression.rs` + `examples/observability.rs` — compile and run with `--all-features`. |
+| M11 | **Done** | `dump_envelope_to_writer` / `_pretty` added. 2 tests. |
+| M12 | **Done** | `with_dump_on` builder ordering documented in AGENTS.md gotchas section. |
+| M18 | **Done** | All `file:line` citations in FEATURES.md converted to symbol names (permanent drift fix). Cross-file consistency verified. |
+
+**Test count:** 76 → 88 unit tests (+12). 10 doctests unchanged. All pass.
+
+### Decisions made during execution
+
+**Decision 1 — Skip v0.2.0, publish straight to v0.3.0.**
+v0.2.0 was never tagged and no users have it. Current `master` HEAD already contains both v0.2.0 and v0.3.0 changes. Publishing v0.2.0 now only to immediately publish v0.3.0 is pointless churn. The semver jump 0.1.1 → 0.3.0 clearly signals "significant breaking changes." `Cargo.toml` bumped to `0.3.0`, CHANGELOG `[0.2.0]` + `[Unreleased]` merged into `[0.3.0]`, README version refs updated, `cargo publish --dry-run` passes. **Remaining:** commit, `git tag v0.3.0`, `git push origin v0.3.0` (triggers automated `publish.yml`).
+
+**Decision 2 — No `eprintln!` fallback for `fire_dump` failures.**
+A library crate should never write to stderr — it violates the "design for the user" principle and adds unnoise to the host application. The `on_dump` callback is the opt-in observability channel. Without it, trigger dump failures are silent (by design). The `with_dump_on` doc comment now includes an `# Errors` section making this trade-off explicit. AGENTS.md documents the design rationale.
+
+**Decision 3 — All FEATURES.md citations converted to symbol names.**
+3 of 6 `file:line` citations were stale (code shifts on every edit above them). Converted all 6 to `Type::method` symbol names — the same permanent fix already applied to DOMAIN_LANGUAGE.md. This eliminates the recurring stale-citation problem.
+
+### What remains (blocked on user approval — irreversible)
+
+Only the final tag + push + publish sequence requires user approval:
+
+1. Commit all changes
+2. `git tag v0.3.0`
+3. `git push origin v0.3.0` (triggers `publish.yml` → crates.io)
+4. Verify crates.io shows v0.3.0
+5. Verify docs.rs built v0.3.0 with `openapi` + `gzip` features
+
+### Quality gate (all verified green)
+
+- `cargo test --all-features` — 88 passed, 1 ignored, 10 doctests
+- `cargo clippy --all-features --all-targets -- -D warnings` — clean
+- `cargo fmt --check` — clean
+- `cargo build --all-features --examples` — all 7 examples compile
+- `cargo doc --all-features --no-deps` — clean (no broken intra-doc links)
+- `cargo publish --dry-run --all-features` — passes

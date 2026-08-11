@@ -705,6 +705,17 @@ impl FlightRecorderLayer {
     /// event. For the common case — a [`OnceTrigger`](crate::OnceTrigger)
     /// around a [`LevelTrigger::error`](crate::LevelTrigger::error) — this is a
     /// single file write, once per process lifetime.
+    ///
+    /// # Errors
+    ///
+    /// Dump failures (disk full, permissions, etc.) do **not** propagate from
+    /// `on_event` — the trigger path must never panic the subscriber. When an
+    /// [`on_dump`](FlightRecorder::with_on_dump) callback is registered,
+    /// failures are surfaced as `DumpEvent { success: false, error: Some(…) }`
+    /// so the host can alert on missed captures. Without a callback, failures
+    /// are silent. Register
+    /// [`with_on_dump`](FlightRecorder::with_on_dump) if dump reliability
+    /// matters to your application.
     #[must_use]
     pub fn with_dump_on(
         mut self,

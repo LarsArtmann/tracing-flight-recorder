@@ -37,7 +37,7 @@ The recorder pays zero I/O cost until a snapshot is triggered.
 
 ```toml
 [dependencies]
-tracing-flight-recorder = "0.2"
+tracing-flight-recorder = "0.3"
 ```
 
 ```rust,no_run
@@ -190,7 +190,7 @@ Enable the `openapi` feature to derive `utoipa::ToSchema` on `CapturedEvent`, `S
 
 ```toml
 [dependencies]
-tracing-flight-recorder = { version = "0.2", features = ["openapi"] }
+tracing-flight-recorder = { version = "0.3", features = ["openapi"] }
 ```
 
 ## Compression & Observability
@@ -201,7 +201,7 @@ the feature, then call `dump_to_file_gz` / `dump_envelope_to_file_gz`:
 
 ```toml
 [dependencies]
-tracing-flight-recorder = { version = "0.2", features = ["gzip"] }
+tracing-flight-recorder = { version = "0.3", features = ["gzip"] }
 ```
 
 **Observability hooks** let the host react to every persisted dump without
