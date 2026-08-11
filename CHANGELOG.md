@@ -9,6 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 _No changes yet._
 
+## [0.2.0] - 2026-08-11
+
+### Added
+
+- **Span context capture** — events fired inside spans now record their full span hierarchy (names + key-value fields, root-first) via the new `CapturedEvent.spans: Vec<SpanContext>` field. The layer implements `on_new_span` and `on_record` to store span fields as extension data through `LookupSpan`, then `on_event` walks the scope to build the hierarchy. This was the #1 development priority identified in the comparative review (`src/capture.rs`, `src/layer.rs`)
+- **`SpanContext` struct** — public type re-exported from the crate root: `name: String` + `fields: Vec<(String, String)>` (`src/capture.rs`)
+- **`dump_to_writer`** — streams pretty-printed JSON to any `impl Write` without buffering the full string (`src/layer.rs`)
+- **`dump_to_json_lines`** — NDJSON output (one compact JSON object per line) for stream ingestion into log pipelines (`src/layer.rs`)
+- **`dump_to_writer_lines`** — NDJSON streaming to any `impl Write` without buffering (`src/layer.rs`)
+- **Expanded redaction patterns** — added `authorization`, `auth`, `bearer`, `cookie`, `session_id`, `access_code` to the sensitive-field pattern list (14 total patterns, case-insensitive substring match) (`src/capture.rs`)
+- **`examples/span_context.rs`** — runnable example demonstrating span context capture with nested spans (`examples/`)
+- **README "Span Context Capture" section** with code example showing nested spans and the resulting `spans` field
+
+### Changed
+
+- **BREAKING: `CapturedEvent` has a new required field** — `spans: Vec<SpanContext>`. Code that constructs `CapturedEvent` manually must add `spans: Vec::new()` (or populate it). Events captured through the layer are populated automatically
+- **BREAKING: `FlightRecorderLayer` now requires `S: Subscriber + for<'lookup> LookupSpan<'lookup>`** — the `Layer` impl bound was tightened to enable span context capture. Subscribers built via `tracing_subscriber::registry()` already implement `LookupSpan`, so most users are unaffected
+- **BREAKING: `CapturedEvent.level` is now `Cow<'static, str>`** instead of `String` — eliminates one heap allocation per event since the 5 known `tracing::Level` variants are stored as `Cow::Borrowed` (zero-copy). Serializes and deserializes identically
+- **`push` is now `pub(crate)`** — prevents external callers from injecting synthetic events into the diagnostic record
+- **`FieldVisitor` removed from public re-exports** — it remains `pub` in the private `capture` module (crate-internal) but is no longer part of the public API surface
+- **Zero-allocation redaction matching** — `is_sensitive_field` now uses byte-level `windows()` + `eq_ignore_ascii_case` instead of `to_lowercase()`, eliminating one heap allocation per field name per event
+- **Per-sensitive-field allocation eliminated** — `record_common` now takes `&str` instead of `String`, so sensitive `record_str` fields skip the value formatting entirely (was: format value → discard → format `"[REDACTED]"`; now: just format `"[REDACTED]"`)
+- **`REDACTED` constant** — extracted `"[REDACTED]"` literal to `const REDACTED: &str` for clarity
+- **`max_files = 0` means unlimited** — `dump_with_retention(_, _, 0)` no longer deletes its own dump. Matches the Go sibling project's convention
+- README dependency claim corrected: "Zero non-tracing dependencies" → "Minimal dependencies — tracing ecosystem + serde/chrono for serialization"
+
+### Fixed
+
+- **capacity=0 retained 1 event** — `FlightRecorder::new(0)` silently stored 1 event because `pop_front()` on an empty deque is a no-op, then `push_back` ran anyway. Now `push()` returns early when `capacity == 0` (`src/layer.rs:41`)
+- **`dump_with_retention(_, _, 0)` deleted its own dump** — `cleanup_old_snapshots` with `max_files=0` computed `excess = 1` and deleted the snapshot that was just written (silent data loss). Now treats `max_files=0` as "unlimited" — no cleanup performed (`src/layer.rs:227`)
+
 ## [0.1.1] - 2026-08-10
 
 ### Changed
@@ -67,6 +98,7 @@ _No changes yet._
 
 - MSRV: 1.86, edition 2021.
 
-[Unreleased]: https://github.com/LarsArtmann/tracing-flight-recorder/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/LarsArtmann/tracing-flight-recorder/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/LarsArtmann/tracing-flight-recorder/releases/tag/v0.2.0
 [0.1.1]: https://github.com/LarsArtmann/tracing-flight-recorder/releases/tag/v0.1.1
 [0.1.0]: https://github.com/LarsArtmann/tracing-flight-recorder/releases/tag/v0.1.0

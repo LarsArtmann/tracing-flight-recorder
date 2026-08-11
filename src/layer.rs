@@ -105,6 +105,24 @@ impl FlightRecorder {
         Ok(output)
     }
 
+    /// Write the buffer as JSON Lines (NDJSON) to any writer.
+    ///
+    /// Streams one compact JSON object per line directly to the writer without
+    /// buffering the full output in memory, making it suitable for large buffers
+    /// or network sinks.
+    ///
+    /// # Errors
+    ///
+    /// Returns `io::Error` if serialization or writing fails.
+    pub fn dump_to_writer_lines(&self, writer: &mut dyn std::io::Write) -> std::io::Result<()> {
+        let events = self.snapshot();
+        for event in &events {
+            serde_json::to_writer(&mut *writer, event).map_err(std::io::Error::other)?;
+            writer.write_all(b"\n")?;
+        }
+        Ok(())
+    }
+
     /// Write the buffer to a file as pretty-printed JSON.
     ///
     /// Creates parent directories if they don't exist.

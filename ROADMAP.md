@@ -6,7 +6,6 @@
 ## Themes
 
 ### 1. Time-windowed capture
-
 The recorder currently evicts by **event count** (`capacity = N`). The Go
 inspiration and the README describe capturing "the last N *seconds*" of context,
 but there is no time-based dimension. Explore capacity that is expressed as a
@@ -19,42 +18,56 @@ Raw ideas:
 - Hybrid capacity: `max_events` OR `max_age`, whichever fills first
 - Report the actual time span covered by the current buffer in metadata
 
-### 2. Hot-path performance
+### 2. Performance
 
-Every captured event takes a `std::sync::Mutex` lock and clones all fields into
-owned `String`s under the tracing hot path, and `snapshot()` clones the entire
-buffer. For high-throughput services this is a bottleneck worth investigating.
+The hot path takes a `std::sync::Mutex` lock and clones all fields into owned
+`String`s. Span context capture adds a scope walk per event. Property-based
+eviction tests and concurrency stress tests are in place, but there are no
+benchmarks yet.
 
 Raw ideas:
 
+- Benchmark hot path with `criterion` (push/dump latency)
 - Evaluate `parking_lot::Mutex` or a lock-free ring buffer (e.g. `crossbeam-queue`)
-- Pre-allocated, reusable field buffers to avoid per-event allocation
+- Pre-allocated, reusable field buffers (`SmallVec` for <8 fields)
 - Zero-copy snapshot handle (iterator over the buffer) instead of cloning into a `Vec`
 - Optional async channel + background writer so `on_event` never serializes
+- Profile allocation count with `cargo-dhat` to verify hot-path improvements
+- Fix memory footprint test to use proper allocator tracking instead of `size_of` + length summation
 
 ### 3. Output formats
 
-JSON is the only output today. Flight-recorder snapshots are most valuable when
-they drop straight into existing diagnostic tooling.
+JSON (pretty + NDJSON), file dumps, retention pruning, and writer streaming
+are all shipped. Remaining ideas for diagnostic tool integration:
 
 Raw ideas:
 
 - Chrome Trace Event format (opens in `chrome://tracing`)
 - OpenTelemetry export for cross-correlation
-- Newline-delimited JSON for stream ingestion
 - Human-readable pretty-text dump for incident chat paste
+- Compression option (`flate2` behind a feature flag)
+- Dump metadata envelope (timestamp, event count, crate version, trigger reason)
 
 ### 4. Framework ergonomics
 
-Manual `dump_to_file` on error requires the caller to wire every failure path.
-Explore integrations that auto-dump on failure conditions.
+Span context capture ships as always-on. Manual `dump_to_file` on error still
+requires the caller to wire every failure path. Explore integrations and
+configuration.
 
 Raw ideas:
 
+- Configurable span context capture (builder option to disable for throughput)
+- `Arc<Vec<...>>` for span field extensions — O(1) clone per event (requires serde `rc` feature)
 - `tower` middleware that dumps the buffer on `Response` error status
 - `axum` extractor / `on_response` hook for automatic incident capture
 - Panic-hook integration that dumps before the process exits
-- Macro helper: `fr_on_error!(recorder, || { ... })`
+- Trigger system: `Trigger` trait, `dump_if(trigger, ctx, path)`, once-semantics
+- Observability hooks: `on_dump` callback with `DumpEvent` (duration, bytes, path)
+- Async/non-blocking capture: background dump thread, drain on shutdown
+- `FlightRecorderBuilder`: capacity, span capture toggle, redaction patterns, output format
+- `parking_lot::Mutex` for reduced lock overhead
+- `Arc<CapturedEvent>` in buffer for cheap snapshot clones
+- Pre-allocated, reusable field buffers to avoid per-event allocation
 
 ### 5. Crates.io publication
 
@@ -83,7 +96,10 @@ Things we are deliberately NOT pursuing and why:
 - **Persistent log storage / log rotation daemon:** The buffer is intentionally
   ephemeral and bounded. Long-term retention belongs in a real log collector.
 - **GUI viewer:** Snapshots are JSON files for external tooling; a built-in
-  viewer would broaden scope beyond a zero-dependency tracing crate.
+  viewer would broaden scope beyond this crate.
+- **Configurable span context capture:** Span capture is always-on. Making it
+  opt-out via a builder is planned but not yet implemented. High-throughput
+  users who don't need span context pay the walk cost with no way to disable it.
 
 ---
 

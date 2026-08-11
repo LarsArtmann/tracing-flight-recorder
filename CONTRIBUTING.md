@@ -6,8 +6,8 @@ philosophy.
 
 ## Design Philosophy
 
-1. **Zero non-tracing dependencies in the default feature set** — the crate
-   stays lean. Optional features behind feature flags are fine.
+1. **Minimal dependencies** — `tracing` ecosystem + `serde`/`chrono` for
+   serialization. Optional features behind feature flags are fine.
 2. **Poison-safe by design** — a panicked thread must never make the recorder
    unusable. Recovery via `PoisonError::into_inner` is intentional.
 3. **Per-layer filtering is the user's responsibility** — the crate documents
@@ -19,7 +19,7 @@ philosophy.
 ## Development Setup
 
 ```sh
-cargo test --all-features          # canonical test gate (24 unit + 3 doctests)
+cargo test --all-features          # canonical test gate (45 unit + 5 doctests)
 cargo clippy --all-features --all-targets -- -D warnings
 cargo fmt --check
 cargo doc --all-features --no-deps
@@ -31,13 +31,17 @@ cargo doc --all-features --no-deps
 tracing::event!
     │
     ▼
-FlightRecorderLayer::on_event()
+FlightRecorderLayer::on_new_span() / on_record()
+    │   └── FieldVisitor captures span fields → stored as CapturedSpanFields extension
     │
     ▼
-CapturedEvent::from_event()
-    ├── FieldVisitor::record_*()  ← collects key-value fields
-    ├── is_sensitive_field()      ← redacts secrets → [REDACTED]
-    └── level_to_string()         ← maps Level → string
+FlightRecorderLayer::on_event()
+    │
+    ├── capture_span_context()    ← walks scope.from_root(), builds Vec<SpanContext>
+    ├── CapturedEvent::from_event()
+    │   ├── FieldVisitor::record_*()  ← collects key-value fields
+    │   ├── is_sensitive_field()      ← redacts secrets → [REDACTED]
+    │   └── level_to_string()         ← maps Level → Cow<'static, str> (zero-alloc)
     │
     ▼
 FlightRecorder::push()
@@ -46,7 +50,8 @@ FlightRecorder::push()
     └── push_back
     │
     ▼
-FlightRecorder::snapshot() / dump_to_json() / dump_to_file() / dump_with_retention()
+FlightRecorder::snapshot() / dump_to_json() / dump_to_json_lines() /
+dump_to_writer() / dump_to_writer_lines() / dump_to_file() / dump_with_retention()
 ```
 
 ## Pull Request Checklist

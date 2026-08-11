@@ -31,29 +31,36 @@
 
 | Feature                              | Status                | Notes                                                                                |
 | ------------------------------------ | --------------------- | ------------------------------------------------------------------------------------ |
-| `tracing_subscriber::Layer` impl     | 🟢 `FULLY_FUNCTIONAL` | `FlightRecorderLayer::on_event` → `CapturedEvent::from_event` (`src/layer.rs:256`); tested end-to-end `layer_captures_real_tracing_events` |
+| `tracing_subscriber::Layer` impl     | 🟢 `FULLY_FUNCTIONAL` | `FlightRecorderLayer::on_event` → `CapturedEvent::from_event` (`src/layer.rs:337`); tested end-to-end `layer_captures_real_tracing_events` |
 | Per-layer filter independence        | 🟢 `FULLY_FUNCTIONAL` | Captures events a sibling `fmt` layer's filter blocks; regression-tested `flight_recorder_sees_events_blocked_by_other_layer_filter` |
-| Structured field capture (all types) | 🟢 `FULLY_FUNCTIONAL` | `FieldVisitor` handles str/bool/i64/u64/f64/i128/u128/debug/error (`src/capture.rs:103`); tested `layer_captures_structured_fields_from_real_events` |
+| Structured field capture (all types) | 🟢 `FULLY_FUNCTIONAL` | `FieldVisitor` handles str/bool/i64/u64/f64/i128/u128/debug/error (`src/capture.rs:163`); tested `layer_captures_structured_fields_from_real_events` |
+| Span context capture (hierarchy)     | 🟢 `FULLY_FUNCTIONAL` | `on_new_span`/`on_record` store span fields as `LookupSpan` extensions; `on_event` walks `event_scope().from_root()` to build `Vec<SpanContext>`; tested `event_inside_single_span_captures_span_context`, `event_inside_nested_spans_captures_full_hierarchy`, `span_fields_updated_via_record_are_captured`, `span_context_captured_with_per_layer_filter` |
+| Span field redaction                 | 🟢 `FULLY_FUNCTIONAL` | Sensitive fields on spans are redacted just like event fields; tested `sensitive_span_fields_are_redacted` |
+| Layer requires `LookupSpan`          | 🟡 design constraint   | `S: Subscriber + for<'lookup> LookupSpan<'lookup>` bound on `Layer` impl. Registry-based subscribers satisfy this; plain `Subscriber` impls without `LookupSpan` cannot use the layer. |
 
 ## Secret Redaction
 
 | Feature                          | Status                | Notes                                                                                |
 | -------------------------------- | --------------------- | ------------------------------------------------------------------------------------ |
-| Automatic sensitive-field redaction | 🟢 `FULLY_FUNCTIONAL` | Substring match on `token`/`password`/`secret`/`api_key`/`apikey`/`credential`/`passphrase`/`private_key` → `[REDACTED]` (`src/capture.rs:91`); tested `sensitive_fields_are_redacted` |
+| Automatic sensitive-field redaction | 🟢 `FULLY_FUNCTIONAL` | Zero-allocation substring match on 14 patterns: `token`/`password`/`secret`/`api_key`/`apikey`/`credential`/`passphrase`/`private_key`/`authorization`/`auth`/`bearer`/`cookie`/`session_id`/`access_code` → `[REDACTED]` (`src/capture.rs:113`); tested `sensitive_fields_are_redacted`, `expanded_redaction_patterns_cover_http_credentials` |
+| Redaction in span fields         | 🟢 `FULLY_FUNCTIONAL` | Same `FieldVisitor` redacts span fields via `on_new_span`/`on_record`; tested `sensitive_span_fields_are_redacted` |
 
 ## Output & Persistence
 
 | Feature                         | Status                | Notes                                                                                |
 | ------------------------------- | --------------------- | ------------------------------------------------------------------------------------ |
-| JSON serialization              | 🟢 `FULLY_FUNCTIONAL` | `dump_to_json()` → pretty JSON array (`src/layer.rs:66`); tested `dump_to_json_produces_valid_json_array` |
-| File dump with dir creation     | 🟢 `FULLY_FUNCTIONAL` | `dump_to_file()` creates parent dirs (`src/layer.rs:78`); tested `dump_to_file_writes_valid_json` |
-| Retention dumps with pruning    | 🟢 `FULLY_FUNCTIONAL` | `dump_with_retention()` writes `{prefix}-{timestamp}.json` with same-second collision guard (`-{counter}` suffix, 9999 limit), deletes oldest beyond max (`src/layer.rs:134`); tested `dump_with_retention_creates_file_and_dir`, `dump_with_retention_prunes_old_snapshots`, `dump_with_retention_does_not_overwrite_same_second`, `resolve_collision_path_returns_error_at_limit`, `resolve_collision_path_finds_first_free_slot` |
+| JSON serialization              | 🟢 `FULLY_FUNCTIONAL` | `dump_to_json()` → pretty JSON array (`src/layer.rs:70`); tested `dump_to_json_produces_valid_json_array` |
+| Writer streaming (pretty JSON)  | 🟢 `FULLY_FUNCTIONAL` | `dump_to_writer()` streams pretty JSON to any `impl Write` (`src/layer.rs:83`); tested `dump_to_writer_produces_valid_json`, `dump_to_writer_writes_valid_json_to_sink` |
+| NDJSON string                   | 🟢 `FULLY_FUNCTIONAL` | `dump_to_json_lines()` → one compact JSON object per line (`src/layer.rs:97`); tested `dump_to_json_lines_produces_valid_ndjson`, `dump_to_json_lines_empty_buffer_produces_empty_string` |
+| NDJSON writer streaming         | 🟢 `FULLY_FUNCTIONAL` | `dump_to_writer_lines()` streams NDJSON to any `impl Write` (`src/layer.rs:108`); tested `dump_to_writer_lines_produces_valid_ndjson`, `dump_to_writer_lines_empty_buffer_writes_nothing` |
+| File dump with dir creation     | 🟢 `FULLY_FUNCTIONAL` | `dump_to_file()` creates parent dirs (`src/layer.rs:120`); tested `dump_to_file_writes_valid_json` |
+| Retention dumps with pruning    | 🟢 `FULLY_FUNCTIONAL` | `dump_with_retention()` writes `{prefix}-{timestamp}.json` with same-second collision guard (`-{counter}` suffix, 9999 limit), deletes oldest beyond max (`src/layer.rs:175`); `max_files=0` means unlimited; tested `dump_with_retention_creates_file_and_dir`, `dump_with_retention_prunes_old_snapshots`, `dump_with_retention_does_not_overwrite_same_second`, `dump_with_retention_zero_max_files_means_unlimited`, `resolve_collision_path_*` |
 
 ## Integrations
 
 | Feature                              | Status                      | Notes                                                                                |
 | ------------------------------------ | --------------------------- | ------------------------------------------------------------------------------------ |
-| OpenAPI schema (`utoipa::ToSchema`)  | 🟢 `FULLY_FUNCTIONAL`       | `derive(utoipa::ToSchema)` on `CapturedEvent` behind `openapi` feature (`src/capture.rs:13`); tested `captured_event_openapi_schema_contains_all_fields` — generates full OpenAPI JSON and asserts all field names appear |
+| OpenAPI schema (`utoipa::ToSchema`)  | 🟢 `FULLY_FUNCTIONAL`       | `derive(utoipa::ToSchema)` on `CapturedEvent` and `SpanContext` behind `openapi` feature (`src/capture.rs:13`); tested `captured_event_openapi_schema_contains_all_fields`, `span_context_openapi_schema_contains_all_fields` |
 
 ---
 

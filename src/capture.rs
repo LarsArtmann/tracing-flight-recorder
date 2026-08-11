@@ -2,6 +2,7 @@
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::fmt::Write as _;
 use tracing::field::{Field, Visit};
 use tracing::{Event, Level};
@@ -15,7 +16,11 @@ pub struct CapturedEvent {
     /// When the event was observed (UTC).
     pub timestamp: chrono::DateTime<chrono::Utc>,
     /// Severity level (ERROR, WARN, INFO, DEBUG, TRACE).
-    pub level: String,
+    ///
+    /// Stored as `Cow<'static, str>` so the five known `tracing::Level` variants
+    /// require zero heap allocation — only deserialized events allocate an owned
+    /// `String`.
+    pub level: Cow<'static, str>,
     /// Module path / target of the event.
     pub target: String,
     /// Human-readable message (the `message` field if present, otherwise empty).
@@ -55,7 +60,7 @@ impl CapturedEvent {
 
         Self {
             timestamp: Utc::now(),
-            level: level_to_string(*event.metadata().level()),
+            level: Cow::Borrowed(level_to_string(*event.metadata().level())),
             target: event.metadata().target().to_string(),
             message,
             fields: visitor.into_fields(),
@@ -86,17 +91,17 @@ impl FieldVisitor {
         self.fields
     }
 
-    fn record_common(&mut self, field: &Field, value: String) {
+    fn record_common(&mut self, field: &Field, value: &str) {
         if field.name() == "message" {
-            self.message = Some(value);
-        } else {
-            let stored_value = if is_sensitive_field(field.name()) {
-                "[REDACTED]".to_string()
-            } else {
-                value
-            };
-            self.fields.push((field.name().to_string(), stored_value));
+            self.message = Some(value.to_string());
+            return;
         }
+        let stored_value = if is_sensitive_field(field.name()) {
+            REDACTED.to_string()
+        } else {
+            value.to_string()
+        };
+        self.fields.push((field.name().to_string(), stored_value));
     }
 }
 
@@ -115,6 +120,9 @@ fn is_sensitive_field(name: &str) -> bool {
         .iter()
         .any(|&pattern| contains_ascii_case_insensitive(name, pattern))
 }
+
+/// Placeholder value stored in place of a sensitive field's actual value.
+const REDACTED: &str = "[REDACTED]";
 
 /// Field-name substrings that trigger secret redaction.
 const SENSITIVE_PATTERNS: &[&str] = &[
@@ -160,43 +168,43 @@ impl Visit for FieldVisitor {
         let mut buf = String::new();
         // write_fmt returns Result but for a String it never fails
         let _ = write!(buf, "{value:?}");
-        self.record_common(field, buf);
+        self.record_common(field, &buf);
     }
 
     fn record_str(&mut self, field: &Field, value: &str) {
-        self.record_common(field, value.to_string());
+        self.record_common(field, value);
     }
 
     fn record_bool(&mut self, field: &Field, value: bool) {
-        self.record_common(field, value.to_string());
+        self.record_common(field, &value.to_string());
     }
 
     fn record_i64(&mut self, field: &Field, value: i64) {
-        self.record_common(field, value.to_string());
+        self.record_common(field, &value.to_string());
     }
 
     fn record_u64(&mut self, field: &Field, value: u64) {
-        self.record_common(field, value.to_string());
+        self.record_common(field, &value.to_string());
     }
 
     fn record_f64(&mut self, field: &Field, value: f64) {
-        self.record_common(field, value.to_string());
+        self.record_common(field, &value.to_string());
     }
 
     fn record_i128(&mut self, field: &Field, value: i128) {
-        self.record_common(field, value.to_string());
+        self.record_common(field, &value.to_string());
     }
 
     fn record_u128(&mut self, field: &Field, value: u128) {
-        self.record_common(field, value.to_string());
+        self.record_common(field, &value.to_string());
     }
 
     fn record_error(&mut self, field: &Field, value: &(dyn std::error::Error + 'static)) {
-        self.record_common(field, value.to_string());
+        self.record_common(field, &value.to_string());
     }
 }
 
-fn level_to_string(level: Level) -> String {
+const fn level_to_string(level: Level) -> &'static str {
     match level {
         Level::ERROR => "ERROR",
         Level::WARN => "WARN",
@@ -204,7 +212,6 @@ fn level_to_string(level: Level) -> String {
         Level::DEBUG => "DEBUG",
         Level::TRACE => "TRACE",
     }
-    .to_string()
 }
 
 #[cfg(test)]
@@ -215,7 +222,7 @@ mod tests {
     fn captured_event_serializes_to_json() {
         let event = CapturedEvent {
             timestamp: Utc::now(),
-            level: "ERROR".to_string(),
+            level: "ERROR".into(),
             target: "test::module".to_string(),
             message: "something broke".to_string(),
             fields: vec![("device".to_string(), "dev-1".to_string())],
@@ -230,7 +237,7 @@ mod tests {
     fn captured_event_round_trips_through_json() {
         let original = CapturedEvent {
             timestamp: Utc::now(),
-            level: "DEBUG".to_string(),
+            level: "DEBUG".into(),
             target: "my::crate".to_string(),
             message: "detailed trace".to_string(),
             fields: vec![
@@ -263,5 +270,21 @@ mod tests {
         assert!(json.contains("target"));
         assert!(json.contains("message"));
         assert!(json.contains("fields"));
+        assert!(json.contains("spans"), "spans field must appear in schema");
+    }
+
+    #[cfg(feature = "openapi")]
+    #[test]
+    fn span_context_openapi_schema_contains_all_fields() {
+        use utoipa::OpenApi;
+
+        #[derive(OpenApi)]
+        #[openapi(components(schemas(SpanContext)))]
+        struct ApiDoc;
+
+        let json = ApiDoc::openapi().to_pretty_json().unwrap();
+        assert!(json.contains("SpanContext"), "schema name must appear");
+        assert!(json.contains("name"), "name field must appear");
+        assert!(json.contains("fields"), "fields must appear in SpanContext");
     }
 }

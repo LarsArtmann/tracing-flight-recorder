@@ -24,7 +24,7 @@ The recorder pays zero I/O cost until a snapshot is triggered.
 - **Span context capture** — events record their full span hierarchy (names + fields, root-first)
 - **Secret redaction** — fields named `token`, `password`, `secret`, `authorization`, `cookie`, `session_id`, etc. are automatically redacted to `[REDACTED]`
 - **JSON snapshots** — `dump_to_json()`, `dump_to_file()`, `dump_to_writer()`, `dump_with_retention()`
-- **NDJSON output** — `dump_to_json_lines()` for streamable, line-delimited JSON ingestible by log pipelines
+- **NDJSON output** — `dump_to_json_lines()` and `dump_to_writer_lines()` for streamable, line-delimited JSON ingestible by log pipelines
 - **Optional OpenAPI** — `utoipa::ToSchema` derive behind the `openapi` feature flag
 - **Minimal dependencies** — `tracing` ecosystem + `serde`/`chrono` for serialization
 
@@ -32,7 +32,7 @@ The recorder pays zero I/O cost until a snapshot is triggered.
 
 ```toml
 [dependencies]
-tracing-flight-recorder = "0.1"
+tracing-flight-recorder = "0.2"
 ```
 
 ```rust,no_run
@@ -77,13 +77,49 @@ let path = recorder
     .ok();
 ```
 
+## Span Context Capture
+
+Events fired inside spans automatically record their full span hierarchy, so
+snapshots preserve request context: `request_id`, `user_id`, `method`, and any
+other fields set on parent spans. Sensitive fields in spans are redacted just
+like event fields.
+
+```rust,no_run
+use tracing_flight_recorder::{FlightRecorder, FlightRecorderLayer};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::Layer;
+
+let recorder = FlightRecorder::new(1000);
+let fr_filter = tracing_subscriber::EnvFilter::new("my_app=debug,warn");
+
+tracing_subscriber::registry()
+    .with(FlightRecorderLayer::new(recorder.clone()).with_filter(fr_filter))
+    .init();
+
+// Events inside spans capture the full hierarchy (root-first):
+let request = tracing::info_span!("http_request", request_id = "req-123", method = "GET");
+let _enter = request.enter();
+tracing::debug!("authenticating");  // spans: [http_request]
+
+let db = tracing::debug_span!("db_query", table = "users");
+let _enter2 = db.enter();
+tracing::warn!("slow query");  // spans: [http_request, db_query]
+
+// Each captured event's `spans` field contains the full chain:
+// [
+//   SpanContext { name: "http_request", fields: [("request_id", "req-123"), ...] },
+//   SpanContext { name: "db_query", fields: [("table", "users")] },
+// ]
+```
+
 ## OpenAPI Support
 
 Enable the `openapi` feature to derive `utoipa::ToSchema` on `CapturedEvent`:
 
 ```toml
 [dependencies]
-tracing-flight-recorder = { version = "0.1", features = ["openapi"] }
+tracing-flight-recorder = { version = "0.2", features = ["openapi"] }
 ```
 
 ## How It Works

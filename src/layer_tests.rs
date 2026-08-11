@@ -5,7 +5,7 @@ use proptest::prelude::*;
 fn make_event(msg: &str) -> CapturedEvent {
     CapturedEvent {
         timestamp: chrono::Utc::now(),
-        level: "DEBUG".to_string(),
+        level: "DEBUG".into(),
         target: "test".to_string(),
         message: msg.to_string(),
         fields: vec![],
@@ -526,7 +526,7 @@ fn retention_pruning_leaves_non_json_files_alone() {
 proptest::proptest! {
     #[test]
     fn eviction_invariant_len_never_exceeds_capacity(
-        capacity in 1usize..=500,
+        capacity in 0usize..=500,
         num_events in 0usize..=2000,
     ) {
         let recorder = FlightRecorder::new(capacity);
@@ -546,11 +546,11 @@ proptest::proptest! {
         prop_assert_eq!(snap.len(), expected_len);
 
         // If we evicted, the oldest events should be gone and newest present.
-        if num_events > capacity {
+        if capacity > 0 && num_events > capacity {
             let first_expected = num_events - capacity;
             prop_assert_eq!(&snap[0].message, &format!("event-{first_expected}"));
         }
-        if num_events > 0 {
+        if capacity > 0 && num_events > 0 {
             prop_assert_eq!(&snap[snap.len() - 1].message, &format!("event-{}", num_events - 1));
         }
     }
@@ -573,7 +573,7 @@ fn multi_thread_stress_push_and_snapshot() {
             for i in 0..events_per_thread {
                 rc.push(CapturedEvent {
                     timestamp: chrono::Utc::now(),
-                    level: "DEBUG".to_string(),
+                    level: "DEBUG".into(),
                     target: format!("thread-{t}"),
                     message: format!("msg-{t}-{i}"),
                     fields: vec![],
@@ -622,7 +622,7 @@ fn memory_footprint_of_default_capacity_buffer() {
     for i in 0..DEFAULT_CAPACITY {
         recorder.push(CapturedEvent {
             timestamp: chrono::Utc::now(),
-            level: "DEBUG".to_string(),
+            level: "DEBUG".into(),
             target: format!("my_app::service::handler::{i}"),
             message: format!("Processing request batch #{i} with timeout 30s"),
             fields: vec![
@@ -951,4 +951,116 @@ fn resolve_collision_path_returns_primary_when_free() {
     // No files exist → primary path returned immediately.
     let path = resolve_collision_path(&dir, base, 3).unwrap();
     assert_eq!(path, dir.join(format!("{base}.json")));
+}
+
+// ── dump_to_writer / dump_to_writer_lines tests ──────────────────────
+
+#[test]
+fn dump_to_writer_writes_valid_json_to_sink() {
+    let recorder = FlightRecorder::new(100);
+    recorder.push(make_event("writer-test-1"));
+    recorder.push(make_event("writer-test-2"));
+
+    let mut sink = std::io::sink();
+    let result = recorder.dump_to_writer(&mut sink);
+    assert!(result.is_ok(), "dump_to_writer to sink should succeed");
+}
+
+#[test]
+fn dump_to_writer_lines_produces_valid_ndjson() {
+    let recorder = FlightRecorder::new(100);
+    recorder.push(make_event("line-1"));
+    recorder.push(make_event("line-2"));
+    recorder.push(make_event("line-3"));
+
+    let mut buf = Vec::new();
+    recorder.dump_to_writer_lines(&mut buf).unwrap();
+
+    let output = String::from_utf8(buf).unwrap();
+    let lines: Vec<&str> = output.lines().collect();
+    assert_eq!(lines.len(), 3, "should have one line per event");
+
+    for line in lines {
+        let parsed: serde_json::Value =
+            serde_json::from_str(line).expect("each line must be valid JSON");
+        assert!(
+            parsed.is_object(),
+            "each NDJSON line must be a JSON object, not an array"
+        );
+    }
+}
+
+#[test]
+fn dump_to_writer_lines_empty_buffer_writes_nothing() {
+    let recorder = FlightRecorder::new(100);
+    let mut buf = Vec::new();
+    recorder.dump_to_writer_lines(&mut buf).unwrap();
+    assert!(buf.is_empty(), "empty buffer should produce no output");
+}
+
+// ── Span context + per-layer filtering ───────────────────────────────
+
+#[test]
+fn span_context_captured_with_per_layer_filter() {
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::Layer;
+
+    let recorder = FlightRecorder::new(100);
+    let fr_filter = tracing_subscriber::EnvFilter::new("my_app=debug");
+
+    let subscriber = tracing_subscriber::registry()
+        .with(FlightRecorderLayer::new(recorder.clone()).with_filter(fr_filter));
+
+    tracing::subscriber::with_default(subscriber, || {
+        let span = tracing::info_span!(target: "my_app", "request", request_id = "req-123");
+        let _enter = span.enter();
+        tracing::debug!(target: "my_app", "processing inside span");
+    });
+
+    let snap = recorder.snapshot();
+    assert_eq!(snap.len(), 1);
+    assert_eq!(snap[0].spans.len(), 1);
+    assert_eq!(snap[0].spans[0].name, "request");
+
+    let fields: std::collections::HashMap<&str, &str> = snap[0].spans[0]
+        .fields
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    assert_eq!(fields.get("request_id"), Some(&"req-123"));
+}
+
+// ── Edge case tests ──────────────────────────────────────────────────
+
+#[test]
+fn snapshot_on_empty_recorder_returns_empty_vec() {
+    let recorder = FlightRecorder::new(100);
+    assert!(recorder.snapshot().is_empty());
+    assert!(recorder.is_empty());
+    assert_eq!(recorder.len(), 0);
+}
+
+#[test]
+fn span_with_no_fields_produces_empty_fields_vec() {
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let recorder = FlightRecorder::new(100);
+    let layer = FlightRecorderLayer::new(recorder.clone());
+
+    let subscriber = tracing_subscriber::registry().with(layer);
+
+    tracing::subscriber::with_default(subscriber, || {
+        let span = tracing::info_span!("bare_span");
+        let _enter = span.enter();
+        tracing::info!("event inside a span with no fields");
+    });
+
+    let snap = recorder.snapshot();
+    assert_eq!(snap.len(), 1);
+    assert_eq!(snap[0].spans.len(), 1);
+    assert_eq!(snap[0].spans[0].name, "bare_span");
+    assert!(
+        snap[0].spans[0].fields.is_empty(),
+        "span with no fields should have empty fields vec"
+    );
 }
