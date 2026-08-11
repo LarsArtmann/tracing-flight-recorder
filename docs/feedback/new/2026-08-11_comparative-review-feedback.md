@@ -3,23 +3,23 @@
 **Date:** 2026-08-11
 **Method:** Full source code audit of both `tracing-flight-recorder` (Rust) and `go-flightrecorder` (Go), with bugs verified by compilation and execution, not just reading.
 
+**Updated:** Incorporates Go project's v2 operational features (compression, retention, async capture, observability hooks, directory snapshots).
+
 ---
 
 ## What I Did Wrong In The First Review
 
-My first feedback file (the one this replaces) was formulaic and shallow. I
-read about 60% of the source, guessed at allocation counts, produced a
-symmetric P0-P3 grid that looked thorough but wasn't, and missed the
-single biggest design flaw in the crate. This version fixes all of that.
-Every claim below is verified against source code. Every bug was confirmed
-by execution.
+My first feedback file was formulaic and shallow. I read about 60% of the
+source, guessed at allocation counts, produced a symmetric P0-P3 grid that
+looked thorough but wasn't, and missed the single biggest design flaw in
+the crate. This version fixes all of that. Every claim below is verified
+against source code. Every bug was confirmed by execution.
 
 ---
 
 ## ACTUAL BUGS (Verified)
 
-These are not design opinions. These are defects present in the code at
-commit `631deb6` (current HEAD).
+These are not design opinions. These are defects present in the code.
 
 ### Bug 1: `FlightRecorder::new(0)` retains 1 event, not 0
 
@@ -78,9 +78,15 @@ snapshots.len()=1, max_files=0, skip=false
 excess files to delete: 1
 ```
 
+**Note:** The Go sibling's `cleanupSnapshots` (`retention.go:54`) has the
+same pattern but avoids this bug because `WithMaxSnapshots(0)` means
+"unlimited" (retention disabled), not "keep zero." The Rust crate's
+`max_files` parameter doesn't have this convention — 0 means "delete
+everything," and the function still writes the file first.
+
 **Fix:** Guard in `dump_with_retention`: if `max_files == 0`, return early
-without writing (or return an error). Alternatively, fix `cleanup_old_snapshots`
-to skip deletion when `max_files == 0`.
+without writing (or return an error). Or adopt the Go convention where 0
+means "unlimited."
 
 ---
 
@@ -107,7 +113,7 @@ heap allocation for 1000 events with realistic field sizes is likely
 
 ---
 
-## THE SPAN CONTEXT BLIND SPOT (The Issue I Completely Missed)
+## THE SPAN CONTEXT BLIND SPOT (The #1 Issue)
 
 This is the biggest problem in the crate, and my first review didn't catch it.
 
@@ -227,10 +233,6 @@ time-based eviction, above trigger systems, above everything.
 
 ## HOT-PATH ALLOCATION ANALYSIS (Verified, Not Guessed)
 
-My first review said "~10 allocations per event." That was a guess. Here is
-the precise count, derived from reading every line of `from_event` and the
-`FieldVisitor` implementation.
-
 ### Per-event allocation breakdown
 
 For a typical event `tracing::info!(device = "dev-1", count = 42, active = true, "sync completed")`:
@@ -258,15 +260,6 @@ For a **5-field** event: **17 allocations**. For a **sensitive** field, add
 1 more (`"[REDACTED]".to_string()` — `capture.rs:76`). For a **0-field**
 event (just a message): **5 allocations**.
 
-### What my first review got wrong
-
-I said "~10." The real number is **14-17** for typical events. I also
-completely missed that `is_sensitive_field` does `name.to_lowercase()`
-— a hidden allocation on **every field**, sensitive or not. That's the
-most wasteful allocation in the hot path because it's pure waste: the
-field name is almost never sensitive, but you allocate a new `String` to
-check.
-
 ### The wasted-allocation triple for sensitive fields
 
 For a field like `auth_token = "secret-value"`:
@@ -279,88 +272,101 @@ For a field like `auth_token = "secret-value"`:
 **3 allocations** for a single sensitive field, plus 1 wasted. The
 `"[REDACTED]"` literal could be a `Cow::Borrowed("'static [REDACTED]")` —
 zero allocation. The `to_lowercase()` could be `contains` with
-case-insensitive comparison — zero allocation. The original value allocation
-is unavoidable but could be avoided if redaction happened before
-serialization.
+case-insensitive comparison — zero allocation.
 
 ### Comparison: Go hot-path cost
 
 The Go recorder has **zero allocations on the hot path**. The Go runtime's
 `trace.FlightRecorder` writes raw binary trace data into a pre-allocated
 ring buffer. The wrapper does nothing until `Snapshot()` is called. The
-difference is architectural, not implementational.
+difference is architectural, not implementational. Even the Go project's
+new `SnapshotIfAsync` — which spawns a goroutine — does zero hot-path work
+beyond the trigger evaluation. The actual I/O happens in the background.
 
 ---
 
 ## FALSE CLAIMS
 
-### Claim 1: "Zero non-tracing dependencies" (README:27, CONTRIBUTING:9)
+### Claim 1: "Zero non-tracing dependencies" (Rust README:27, CONTRIBUTING:9)
 
 **Status:** False.
 
 `Cargo.toml` `[dependencies]` section:
 
 ```toml
-tracing = "0.1"                              # tracing ecosystem ✓
-tracing-subscriber = { version = "0.3" }     # tracing ecosystem ✓
+tracing = "0.1"                              # tracing ecosystem
+tracing-subscriber = { version = "0.3" }     # tracing ecosystem
 serde = { version = "1", features = ["derive"] }  # NOT tracing
 serde_json = "1"                              # NOT tracing
 chrono = { version = "0.4" }                  # NOT tracing
 ```
 
 Three of five default dependencies are not part of the tracing ecosystem.
-The CONTRIBUTING.md hedges with "in the default feature set" — but `serde`,
-`serde_json`, and `chrono` are not behind feature flags. They are always
-compiled regardless of features.
-
-Furthermore, `chrono` could be eliminated entirely. The crate uses it only
-for `Utc::now()` and `chrono::DateTime` serialization. `std::time::SystemTime`
-plus `serde` would suffice, or the `time` crate (smaller dependency tree).
-`tracing-subscriber` itself has a `fmt::time` module for timestamp
-formatting.
-
-**Fix the claim or fix the dependencies.** Either:
-- Drop `chrono` (use `SystemTime` or `web-time`), make `serde`/`serde_json`
-  optional behind a `serde` feature, and the claim becomes true.
-- Or change the README to say "Minimal dependencies" and list them honestly.
+`chrono` could be eliminated entirely — `std::time::SystemTime` plus serde
+would suffice.
 
 ---
 
-### Claim 2: "Pays zero I/O cost until a snapshot is triggered" (README:17)
+### Claim 2: "Pays zero I/O cost until a snapshot is triggered" (Rust README:17)
 
 **Status:** Technically true (no I/O), but misleading about cost.
 
 The crate pays **zero I/O cost** but pays a **significant CPU and allocation
 cost** on every event. 14-17 heap allocations per event, all under a global
-`Mutex` lock. For a service at 1000 events/sec, that's 14,000-17,000
-allocations per second — all to buffer data that may never be dumped.
-
-The Go sibling pays truly zero cost — no I/O, no allocations, no CPU. The
-runtime handles buffering at the kernel level.
-
-The README's framing implies the crate is free until you need it. It isn't.
-It's cheaper than writing to disk, but it's not free.
+`Mutex` lock. The README implies the crate is free until you need it. It
+isn't.
 
 ---
 
-## REDACTION GAPS
+## DOCUMENTATION BUGS IN THE GO PROJECT
+
+### Go Bug 1: `WithCompression` doc comment contradicts reality
+
+**Location:** `go-flightrecorder/options.go:121`
+
+```go
+// Compressed snapshot files use the ".trace.gz" extension and are loadable by
+// `go tool trace` (supported since Go 1.19).
+```
+
+This is **false**. The project's own status report
+(`docs/status/2026-08-11_15-33_q1-q3-resolution-and-self-review.md`)
+empirically verified in three ways that `go tool trace` in Go 1.26.5
+**rejects** gzip-compressed trace files with "bad file format: not a Go
+execution trace?"
+
+The CHANGELOG correctly says "does not read gzip directly." The README
+correctly says "decompress with gunzip." The doc.go correctly says
+"does not read .gz directly." The AGENTS.md correctly says "does NOT
+read .trace.gz directly." But the `WithCompression` doc comment — the one
+a developer reads when hovering the function in their IDE — still claims
+gzip is "loadable by go tool trace."
+
+**Fix:** Change to "Compressed snapshot files use the `.trace.gz` extension.
+Decompress with `gunzip` before analysis — `go tool trace` does not read
+gzip directly."
+
+---
+
+### Go Bug 2: FEATURES.md repeats the false gzip claim
+
+**Location:** `go-flightrecorder/FEATURES.md:56`
+
+```
+| Compression | FULLY_FUNCTIONAL | WithCompression; stdlib gzip;
+|             |                  | .trace.gz loadable by go tool trace |
+```
+
+Same false claim as above. Should read ".trace.gz requires gunzip before
+go tool trace."
+
+---
+
+## REDACTION GAPS (Rust only)
 
 ### `authorization` is not redacted
 
 **Location:** `src/capture.rs:91-101`
-
-The redaction patterns:
-
-```rust
-lower.contains("token")
-|| lower.contains("password")
-|| lower.contains("secret")
-|| lower.contains("api_key")
-|| lower.contains("apikey")
-|| lower.contains("credential")
-|| lower.contains("passphrase")
-|| lower.contains("private_key")
-```
 
 Missing patterns for a web service context:
 
@@ -372,74 +378,13 @@ Missing patterns for a web service context:
 | `cookie` | Can contain session tokens | **No** |
 | `session_id` | Session identifier | **No** |
 | `access_code` | OAuth access codes | **No** |
-| `refresh_token` | Contains "token" | Yes |
 
 `authorization` is the most glaring omission. In HTTP services, it's the
-standard field name for the credential that grants access. A tracing event
-like `info!(authorization = header_value, "authenticating")` would leak
-the raw bearer token into the ring buffer.
-
----
-
-## MISSING API SURFACE
-
-Things the crate should have but doesn't, ranked by impact.
-
-### 1. No `dump_to_writer`
-
-Cannot dump to `stdout`, `stderr`, a network socket, or a compressed
-writer. Forced to go through `String` or file. This is a trivial addition:
-
-```rust
-pub fn dump_to_writer(&self, w: &mut impl std::io::Write) -> std::io::Result<()>
-```
-
-### 2. No streaming serialization
-
-`dump_to_json()` serializes the entire buffer into one `String` in memory,
-then writes it. For large buffers this doubles memory usage (buffer + JSON
-string). Should serialize event-by-event to a `Write` sink.
-
-### 3. No trigger system
-
-Every failure path must manually call `dump_to_file()`. The Go sibling has
-composable triggers (`OnError`, `OnLatency`, `OnAny`, `OnAll`). Without
-triggers, developers forget to wire dumps, and failures pass unrecorded.
-
-### 4. No once-semantics
-
-Multiple threads detecting a failure simultaneously each call
-`dump_to_file()`, causing redundant I/O and burning retention slots. The
-Go sibling uses `sync.Once` internally.
-
-### 5. No NDJSON option
-
-Output is pretty-printed JSON arrays. Not streamable, not appendable, not
-ingestible by log pipelines without a full parse. NDJSON (one JSON object
-per line) is the industry standard for event streams.
-
-### 6. `push` is `pub` but should be `pub(crate)`
-
-Users can inject fake events into the diagnostic record. The only legitimate
-caller is `FlightRecorderLayer::on_event`. Making it `pub(crate)` would
-prevent buffer pollution while keeping tests working (tests are in the same
-crate).
-
-### 7. `FieldVisitor` is exported but has no external use case
-
-`pub use capture::{CapturedEvent, FieldVisitor};` in `lib.rs:78`. Nobody
-outside the crate should construct a `FieldVisitor` — it's an internal
-implementation detail of the `tracing::field::Visit` protocol. Exporting it
-pollutes the public API.
+standard field name for the credential that grants access.
 
 ---
 
 ## TIME-BASED BUFFERING (Still Important, But Not The #1 Issue)
-
-My first review made this the #1 finding. Having now found the span context
-gap and the actual bugs, I'm demoting it to #2. It's still a significant
-design issue, but it's a known one (roadmap Theme #1) and less severe than
-capturing decontextualized events.
 
 The core problem remains: event-count buffering loses temporal context
 under burst load. At 5000 events/sec, 1000 events = 200ms of context. The
@@ -447,50 +392,75 @@ fix (hybrid time + count eviction) is on the roadmap and the implementation
 is straightforward. But the span context gap should be fixed first —
 time-based eviction of context-free events gives you more nothing, faster.
 
----
-
-## WHAT THE GO SIBLING ALSO GETS WRONG
-
-For balance — the Go project has its own issues.
-
-### Go AGENTS.md is stale (documents code that no longer exists)
-
-**Location:** `go-flightrecorder/AGENTS.md:42-48`
-
-The AGENTS.md says singleton detection uses string matching:
-
-```go
-if err.Error() == "flight recorder already enabled" {
-    return fmt.Errorf("%w: %w", ErrAlreadyEnabled, err)
-}
-```
-
-But the actual code at `recorder.go:62-74` wraps **any** error from
-`fr.Start()` as `AlreadyEnabledError`:
-
-```go
-func (r *Recorder) Start() error {
-    r.mu.Lock()
-    defer r.mu.Unlock()
-    if err := r.fr.Start(); err != nil {
-        return &AlreadyEnabledError{Cause: err}
-    }
-    return nil
-}
-```
-
-No string matching. The AGENTS.md also claims "This is fragile: if Go
-changes the runtime error message, `ErrAlreadyEnabled` detection breaks
-silently." — but this fragility was eliminated in the v0.1.1 typed error
-refactor. The AGENTS.md was never updated.
-
-A status report at `docs/status/2026-08-10_14-34` explicitly documents the
-change: "String comparison eliminated." But the AGENTS.md — the file every
-AI session reads first — still describes the old, eliminated code path.
+The Go project doesn't have this problem because the Go runtime's
+`FlightRecorder` handles time-based eviction internally via `MinAge` and
+`MaxBytes`.
 
 ---
 
-## COMPARISON: THE REAL PICTURE
+## MISSING API SURFACE (Rust)
+
+### 1. No span context capture (see #1 issue above)
+
+### 2. No trigger/decision system
+
+Every failure path must manually call `dump_to_file()`. The Go sibling has
+composable triggers (`OnError`, `OnLatency`, `OnAny`, `OnAll`). Without
+triggers, developers forget to wire dumps, and failures pass unrecorded.
+
+### 3. No once-semantics
+
+Multiple threads detecting a failure simultaneously each call
+`dump_to_file()`, causing redundant I/O and burning retention slots. The
+Go sibling uses `sync.Once` internally with `Reset()` for re-arming.
+
+### 4. No async/non-blocking capture
+
+The Go sibling just added `SnapshotIfAsync` — trigger evaluation returns
+immediately, the actual I/O happens in a background goroutine, and
+`Stop`/`Close` drain in-flight captures before shutting down. This is
+critical for HTTP middleware where trace file I/O must not block the
+response. The Rust crate forces every dump call to block.
+
+### 5. No observability hooks
+
+The Go sibling now has `WithMetrics(hook)` and `WithLogger(hook)` —
+dependency-free callbacks that receive a `SnapshotEvent` (duration, bytes,
+path, compression flag, source label) after every capture. This lets
+consumers wire Prometheus, OpenTelemetry, or any backend without the
+library taking a dependency. The Rust crate has nothing — no way to know
+when a dump fires, how long it took, or how big it was.
+
+### 6. No compression
+
+The Go sibling compresses snapshots with stdlib gzip (10x reduction for
+trace data). The Rust crate outputs pretty-printed JSON, which is already
+larger than necessary, with no compression option.
+
+### 7. No NDJSON or `dump_to_writer`
+
+Output is pretty-printed JSON arrays. Not streamable, not appendable, not
+ingestible by log pipelines without a full parse. No `dump_to_writer` for
+non-file sinks. The Go sibling now has `SnapshotToWriter` for arbitrary
+`io.Writer` destinations.
+
+### 8. `push` is `pub` but should be `pub(crate)`
+
+Users can inject fake events into the diagnostic record.
+
+### 9. `FieldVisitor` is exported but has no external use case
+
+Pollutes the public API with an internal implementation detail.
+
+---
+
+## COMPARISON: THE REAL PICTURE (Updated)
+
+The Go project received a major feature update on 2026-08-11 that
+fundamentally changes the comparison. It went from 1,587 LOC (5 source
+files) to 3,411 LOC (7 source files + 2 new supporting files), adding
+compression, retention, async capture, observability hooks, directory
+snapshots, and nil-safe lifecycle.
 
 | Dimension | Go (go-flightrecorder) | Rust (tracing-flight-recorder) |
 |-----------|------------------------|--------------------------------|
@@ -500,43 +470,71 @@ AI session reads first — still describes the old, eliminated code path.
 | **Buffer model** | Time + bytes (temporal guarantee) | Event count (no temporal guarantee under load) |
 | **Trigger system** | Composable: OnError, OnLatency, OnAny, OnAll | None (manual dump calls) |
 | **Once-semantics** | sync.Once + Reset() | None |
+| **Async capture** | **SnapshotIfAsync** (background goroutine, drain on Stop/Close) | None |
+| **Observability hooks** | **WithMetrics + WithLogger** (SnapshotEvent with source labels) | None |
+| **Compression** | **WithCompression** (gzip, opt-in, 10x reduction) | None |
+| **Directory snapshots** | **SnapshotToDir** (timestamped, prefixed, non-once-latched) | dump_to_file (single file, manual naming) |
+| **Retention** | **WithMaxSnapshots** (prune oldest, prefix/suffix filtered) | dump_with_retention (buggy at max_files=0) |
+| **Arbitrary writer sink** | **SnapshotToWriter** (bypasses once-latch, for debug endpoints) | None |
+| **Nil-safe lifecycle** | **Enabled/Stop/Close** on nil receiver | N/A (Rust ownership) |
 | **Secret redaction** | N/A (binary trace data) | Yes, but missing `authorization` and allocates per field |
-| **Retention pruning** | None | dump_with_retention (but buggy at max_files=0) |
-| **Output format** | Binary (go tool trace) | Pretty JSON array (not streamable) |
+| **Output format** | Binary (go tool trace), gzip-compressed | Pretty JSON array (not streamable) |
 | **Dependencies** | Zero (stdlib only) | 5 (3 non-tracing despite README claim) |
-| **Known bugs** | 0 found | 2 confirmed (capacity=0 off-by-one, retention self-delete) |
-| **Stale docs** | AGENTS.md describes eliminated string-matching code | README claims "zero non-tracing deps" (false) |
-| **Tests** | 27 + race detector | 27 + proptest + concurrency + memory (undercounts) |
-| **CI** | 3 jobs | 7+ jobs (best-in-class) |
+| **Known bugs** | 2 doc contradictions (gzip claim in options.go + FEATURES.md) | 2 confirmed (capacity=0, retention=0), 1 measurement flaw |
+| **Stale docs** | options.go:121 claims gzip "loadable by go tool trace" (disproven by own status report); AGENTS.md string-matching claim was fixed | README claims "zero non-tracing deps" (false) |
+| **Tests** | 64 tests + race detector | 27 + proptest + concurrency + memory (undercounts) |
+| **CI** | 3 jobs (test+race, vet, lint) | 7+ jobs (best-in-class) |
+| **Code size** | 3,411 LOC (7 source + 2 test files) | 1,321 LOC (3 source + 1 test + 3 examples) |
+| **Examples** | None | 3 runnable |
+
+### What changed in this update
+
+The Go project closed every operational gap that existed between the two
+projects and pulled significantly ahead:
+
+| Feature | Before Go update | After Go update |
+|---------|-----------------|-----------------|
+| Retention | Rust only (unique feature) | **Both** — Go's version is more robust (0=unlimited, prefix/suffix filter) |
+| Compression | Neither | **Go only** |
+| Async capture | Neither | **Go only** |
+| Metrics hooks | Neither | **Go only** |
+| Logger hooks | Neither | **Go only** |
+| Directory snapshots | Neither | **Go only** |
+| Arbitrary writer sink | Neither | **Go only** |
+| Nil-safe lifecycle | Neither | **Go only** |
+
+The Rust crate now uniquely offers only: secret redaction, OpenAPI schema
+support, and runnable examples. Everything else has been matched or
+exceeded.
 
 ---
 
 ## WHAT IS GENUINELY EXCELLENT
 
-Not table stakes. Not "good for a crate this size." Actually exceptional.
-
-1. **The CI pipeline.** stable + beta matrix, MSRV verification, clippy with
+1. **The Rust CI pipeline.** stable + beta matrix, MSRV verification, clippy with
    `pedantic` + `nursery` + `unwrap_used` + `as_conversions` all denied,
-   doc build, publish dry-run, cargo audit + deny. This is the standard
-   most crates should aspire to and few meet.
+   doc build, publish dry-run, cargo audit + deny. The Go CI has 3 jobs;
+   the Rust CI has 7+.
 
 2. **The per-layer filtering documentation.** The #1 integration pitfall
    (global EnvFilter blocking DEBUG/TRACE) is documented with a dedicated
-   regression test. This saves users hours of silent confusion. The crate
-   earns trust here.
+   regression test.
 
 3. **The poison recovery design.** `PoisonError::into_inner` is the correct
-   choice — a panicked thread should not kill the recorder. Most Rust
-   codebases reflexively `.unwrap()` on mutex locks. This one thought about
-   it and chose correctly.
+   choice.
 
 4. **The collision guard extraction.** `resolve_collision_path` with an
-   injectable `COLLISION_LIMIT` is well-engineered testability. The same-
-   second collision problem is real and the solution is clean.
+   injectable `COLLISION_LIMIT` is well-engineered.
 
-5. **The retention pruning feature itself.** Despite the `max_files=0` bug,
-   the feature is genuinely useful and well-tested for normal inputs. Most
-   flight recorder implementations don't have retention at all.
+5. **The Go project's drain-on-shutdown design.** `SnapshotIfAsync` +
+   `beginShutdown` + `wg.Wait()` is a textbook-correct shutdown ordering
+   that prevents the WriteTo/Stop data race. The `stopped` flag is set
+   under the lock before `wg.Wait()`, so no new goroutines can call
+   `wg.Add` concurrently with `wg.Wait`.
+
+6. **The Go project's observability hooks.** `SnapshotEvent` with source
+   labels (manual/trigger/async) and Kind/Type threading is exactly the
+   right design. Dependency-free, opt-in, with a `noopMetrics` default.
 
 ---
 
@@ -544,17 +542,28 @@ Not table stakes. Not "good for a crate this size." Actually exceptional.
 
 | Phase | What | Why |
 |-------|------|-----|
-| **Immediate** | Fix capacity=0 and retention=0 bugs | Active data-loss defects |
-| **Immediate** | Fix README "zero non-tracing dependencies" claim | False advertising in public docs |
+| **Immediate** | Fix Rust capacity=0 and retention=0 bugs | Active data-loss defects |
+| **Immediate** | Fix Rust README "zero non-tracing dependencies" claim | False advertising |
+| **Immediate** | Fix Go `options.go:121` + `FEATURES.md:56` gzip claim | Contradicts own empirical finding |
 | **v0.2.0** | **Span context capture** | Without this, the crate is not a tracing tool |
 | **v0.2.0** | Fix `is_sensitive_field` to not allocate | Free perf win on every event |
 | **v0.2.0** | Add `authorization` to redaction patterns | Security gap |
 | **v0.2.0** | `dump_to_writer` + NDJSON output | Trivial additions, big usability gains |
+| **v0.2.0** | Observability hooks (match Go's WithMetrics/WithLogger) | The Go project just lapped the Rust crate here |
 | **v0.3.0** | Time-based + count hybrid eviction | Temporal guarantee under load |
 | **v0.3.0** | Trigger system + once-semantics | Match Go sibling's production readiness |
+| **v0.3.0** | Async capture (spawn background task) | Match Go's SnapshotIfAsync |
 | **v0.4.0** | Hot-path: parking_lot, Arc events, field pre-allocation | Performance competitiveness |
 
-The span context gap is the thesis statement of this review. Everything
-else is secondary. A flight recorder for `tracing` that discards span
-context is like a camera that captures images without light. The mechanism
-works, the output exists, but the essential information is missing.
+The span context gap is the thesis statement of this review. The Go
+project's operational feature blitz has widened the gap further. The Rust
+crate's unique value (redaction, OpenAPI, examples) is thinning. The path
+back to competitiveness runs through span context capture first, then
+matching the Go project's operational feature set.
+
+---
+
+<!-- This feedback was generated from a comparative review against the sibling
+     go-flightrecorder project. All claims are verified against source code in
+     both repositories as of 2026-08-11, including the Go project's v2 operational
+     features update. Line references may drift as code changes. -->
