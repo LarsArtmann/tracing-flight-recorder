@@ -27,12 +27,10 @@ benchmarks yet.
 
 Raw ideas:
 
-- Benchmark hot path with `criterion` (push/dump latency)
 - Evaluate `parking_lot::Mutex` or a lock-free ring buffer (e.g. `crossbeam-queue`)
-- Pre-allocated, reusable field buffers (`SmallVec` for <8 fields)
+- Pre-allocated, reusable field buffers (`SmallVec` for <8 fields) — see `TODO_LIST.md` for why this is currently rejected
 - Zero-copy snapshot handle (iterator over the buffer) instead of cloning into a `Vec`
 - Optional async channel + background writer so `on_event` never serializes
-- Profile allocation count with `cargo-dhat` to verify hot-path improvements
 
 ### 3. Output formats
 
@@ -44,7 +42,6 @@ Raw ideas:
 - Chrome Trace Event format (opens in `chrome://tracing`)
 - OpenTelemetry export for cross-correlation
 - Human-readable pretty-text dump for incident chat paste
-- Compression option (`flate2` behind a feature flag)
 
 ### 4. Framework ergonomics
 
@@ -57,7 +54,6 @@ Raw ideas:
 - `tower` middleware that dumps the buffer on `Response` error status
 - `axum` extractor / `on_response` hook for automatic incident capture
 - Panic-hook integration that dumps before the process exits
-- Observability hooks: `on_dump` callback with `DumpEvent` (duration, bytes, path)
 - Async/non-blocking capture: background dump thread, drain on shutdown
 - `FlightRecorderBuilder`: capacity, span capture toggle, redaction patterns, output format
 - `parking_lot::Mutex` for reduced lock overhead
@@ -96,6 +92,12 @@ Things we are deliberately NOT pursuing and why:
   configurable via `FlightRecorderLayer::with_span_capture`. Remaining gap: a
   full `FlightRecorderBuilder` unifying capacity, span capture, redaction
   patterns, and output format.
+- **`no_std` / embedded support:** Investigated and rejected short-term. The
+  crate depends on `chrono` (wall-clock timestamps), `std::sync::Mutex`
+  (shared ring buffer), and `std::fs` (file/retention dumps). A `no_std` port
+  would need a spin/`critical-section` mutex, a timestamp abstraction, and the
+  filesystem API feature-gated out. Not actionable until a concrete embedded
+  use case demands it.
 
 ---
 

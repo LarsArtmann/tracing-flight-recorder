@@ -4,7 +4,9 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::fmt::Write as _;
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use tracing::field::{Field, Visit};
 use tracing::{Event, Level};
 
@@ -85,6 +87,46 @@ pub struct FlightRecorderDump {
     pub trigger_reason: Option<Cow<'static, str>>,
     /// The captured events, oldest-first.
     pub events: Vec<CapturedEvent>,
+}
+
+/// What kind of code path triggered a dump.
+///
+/// Delivered as part of [`DumpEvent`] so a callback can distinguish an
+/// automatic snapshot (fired by a [`Trigger`](crate::Trigger)) from one
+/// requested by application code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DumpSource {
+    /// A dump requested by application code (e.g. [`dump_to_file`](crate::FlightRecorder::dump_to_file)).
+    Manual,
+    /// A dump fired automatically because an attached
+    /// [`Trigger`](crate::Trigger) matched the event.
+    Trigger,
+}
+
+/// Payload delivered to an [`on_dump`](crate::FlightRecorder::with_on_dump)
+/// callback after a snapshot is persisted.
+///
+/// Lets the host wire the flight recorder into broader observability — emit a
+/// metric, ship the file to object storage, enqueue an audit entry — without
+/// polling. Delivered only for dumps that write to a destination (file writes
+/// and retention dumps, including automatic trigger dumps); in-memory
+/// serialization methods (`dump_to_json`, `dump_to_writer`, …) do not fire the
+/// callback.
+#[derive(Debug, Clone)]
+pub struct DumpEvent {
+    /// Where the snapshot was written, when the dump had a destination file.
+    pub path: Option<PathBuf>,
+    /// Number of bytes serialized and written.
+    pub bytes_written: usize,
+    /// Wall-clock time spent serializing and writing the dump.
+    pub duration: Duration,
+    /// Why the dump was taken. For a [`Trigger`](DumpSource::Trigger) dump this
+    /// is the trigger's [`name`](crate::Trigger::name); for a
+    /// [`Manual`](DumpSource::Manual) dump it is whatever reason the caller
+    /// supplied (or `None`).
+    pub trigger_reason: Option<String>,
+    /// Whether the dump was automatic (trigger) or caller-requested.
+    pub source: DumpSource,
 }
 
 impl CapturedEvent {
@@ -258,6 +300,7 @@ const fn level_to_string(level: Level) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn captured_event_serializes_to_json() {
@@ -349,5 +392,33 @@ mod tests {
         assert!(json.contains("event_count"));
         assert!(json.contains("trigger_reason"));
         assert!(json.contains("events"));
+    }
+
+    proptest::prelude::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig {
+            cases: 512,
+            ..proptest::prelude::ProptestConfig::default()
+        })]
+
+        /// Cross-validate the zero-allocation byte-window matcher against an
+        /// independent reference implementation (`to_lowercase().contains`).
+        /// The two algorithms are structurally different, so agreement across
+        /// random field names is strong evidence of correctness.
+        #[test]
+        fn redaction_matches_reference_implementation(
+            name in "[a-zA-Z0-9_]{0,24}"
+        ) {
+            let actual = is_sensitive_field(&name);
+            let lowered = name.to_lowercase();
+            let expected = SENSITIVE_PATTERNS
+                .iter()
+                .any(|pattern| lowered.contains(pattern));
+            prop_assert_eq!(
+                actual,
+                expected,
+                "redaction mismatch for field name {:?}",
+                name
+            );
+        }
     }
 }

@@ -7,7 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-_No changes yet._
+The next release will be **0.3.0** — it contains a breaking change to the
+default JSON formatting of the dump methods.
+
+### Added
+
+- **Observability hooks** — `DumpEvent` (path, `bytes_written`, `duration`, `trigger_reason`, `source`) and `DumpSource` (`Manual` / `Trigger`). Register a callback with `FlightRecorder::with_on_dump`; it fires after every dump that persists to a file (manual file/retention dumps **and** automatic trigger dumps), with accurate byte count and wall-clock duration. The callback is best-effort: a panicking observer is contained via `catch_unwind` and never destabilizes the recorder or trigger path (`src/layer.rs`, `src/capture.rs`)
+- **Gzip compression** — optional `gzip` feature (behind `dep:flate2`) adds `dump_to_file_gz` and `dump_envelope_to_file_gz`, writing snapshots 5-10× smaller. The `on_dump` callback reports the *compressed* byte count (`src/layer.rs`)
+- **Criterion benchmarks** — `benches/push_dump.rs` covers the `on_event` capture path, `snapshot`, and `dump_to_json` at varying buffer sizes. Run with `cargo bench`
+- **Allocation-count profiling** — an `#[ignore]`d test backed by a counting global allocator characterizes the `on_event` hot path at ~9 allocations/event. Run with `cargo test profile_allocations -- --ignored --nocapture`
+- **Edge-case tests** — 12-deep nested span hierarchy, `i128`/`u128` min/max boundary values, and `dump_to_file` into a read-only directory (permission-error propagation)
+- **Redaction fuzz test** — `proptest` cross-validates the zero-allocation byte-window matcher against an independent `to_lowercase().contains` reference implementation (512 cases) (`src/capture.rs`)
+
+### Changed
+
+- **BREAKING: dump methods now default to compact JSON.** `dump_to_json`, `dump_to_writer`, `dump_to_file`, `dump_envelope_to_json`, and `dump_envelope_to_file` emit compact output instead of pretty-printed. New `_pretty` companions (`dump_to_json_pretty`, `dump_to_writer_pretty`, `dump_to_file_pretty`, `dump_envelope_to_json_pretty`, `dump_envelope_to_file_pretty`) provide indented output for human reading. Compact is the better default because snapshots are frequently persisted automatically (trigger dumps, retention pruning) where size matters. Code that *parses* the output is unaffected — only whitespace differs
+- **Retention dumps are compact** — `dump_with_retention` and `dump_with_retention_envelope` now write compact JSON (consistent with the new default)
 
 ## [0.2.0] - 2026-08-11
 

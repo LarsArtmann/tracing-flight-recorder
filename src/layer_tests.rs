@@ -1,5 +1,5 @@
 use super::*;
-use crate::capture::CapturedEvent;
+use crate::capture::{CapturedEvent, DumpEvent, DumpSource};
 use proptest::prelude::*;
 
 fn make_event(msg: &str) -> CapturedEvent {
@@ -1433,4 +1433,489 @@ fn span_fields_updated_via_record_do_not_mutate_already_captured_events() {
     let after_keys: Vec<&str> = after.iter().map(|(k, _)| k.as_str()).collect();
     assert_eq!(before_keys, vec!["a"]);
     assert_eq!(after_keys, vec!["a", "b"]);
+}
+
+// ── Stress / boundary edge cases ─────────────────────────────────────
+
+#[test]
+fn deeply_nested_spans_captures_full_hierarchy() {
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let recorder = FlightRecorder::new(100);
+    let layer = FlightRecorderLayer::new(recorder.clone());
+    let subscriber = tracing_subscriber::registry().with(layer);
+
+    tracing::subscriber::with_default(subscriber, || {
+        // 12 levels of nesting — stresses the `from_root()` span walking.
+        let s1 = tracing::info_span!("level_01", id = "1");
+        let _g1 = s1.enter();
+        let s2 = tracing::info_span!("level_02", id = "2");
+        let _g2 = s2.enter();
+        let s3 = tracing::info_span!("level_03", id = "3");
+        let _g3 = s3.enter();
+        let s4 = tracing::info_span!("level_04", id = "4");
+        let _g4 = s4.enter();
+        let s5 = tracing::info_span!("level_05", id = "5");
+        let _g5 = s5.enter();
+        let s6 = tracing::info_span!("level_06", id = "6");
+        let _g6 = s6.enter();
+        let s7 = tracing::info_span!("level_07", id = "7");
+        let _g7 = s7.enter();
+        let s8 = tracing::info_span!("level_08", id = "8");
+        let _g8 = s8.enter();
+        let s9 = tracing::info_span!("level_09", id = "9");
+        let _g9 = s9.enter();
+        let s10 = tracing::info_span!("level_10", id = "10");
+        let _g10 = s10.enter();
+        let s11 = tracing::info_span!("level_11", id = "11");
+        let _g11 = s11.enter();
+        let s12 = tracing::info_span!("level_12", id = "12");
+        let _g12 = s12.enter();
+        tracing::error!("bottom of a very deep stack");
+    });
+
+    let snap = recorder.snapshot();
+    assert_eq!(snap.len(), 1);
+    let event = &snap[0];
+    assert_eq!(
+        event.spans.len(),
+        12,
+        "all 12 levels of the span hierarchy must be captured"
+    );
+
+    // Root-first ordering: level_01 is outermost, level_12 is innermost.
+    let names: Vec<&str> = event.spans.iter().map(|s| s.name.as_str()).collect();
+    for (i, name) in names.iter().enumerate() {
+        let expected = format!("level_{:02}", i + 1);
+        assert_eq!(
+            *name,
+            expected,
+            "span at depth {} must be {expected}, got {name}",
+            i + 1
+        );
+    }
+
+    // Each level's `id` field must be present and correct.
+    for (i, span) in event.spans.iter().enumerate() {
+        let id_field = span
+            .fields
+            .iter()
+            .find(|(k, _)| k == "id")
+            .map(|(_, v)| v.as_str());
+        assert_eq!(
+            id_field,
+            Some((i + 1).to_string()).as_deref(),
+            "level_{} must carry id={}",
+            i + 1,
+            i + 1
+        );
+    }
+}
+
+#[test]
+fn i128_and_u128_field_boundary_values_round_trip() {
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let recorder = FlightRecorder::new(100);
+    let layer = FlightRecorderLayer::new(recorder.clone());
+    let subscriber = tracing_subscriber::registry().with(layer);
+
+    let imin = i128::MIN;
+    let imax = i128::MAX;
+    let umax = u128::MAX;
+    let uzero: u128 = 0;
+    let imin_s = imin.to_string();
+    let imax_s = imax.to_string();
+    let umax_s = umax.to_string();
+    let uzero_s = uzero.to_string();
+
+    tracing::subscriber::with_default(subscriber, || {
+        tracing::info!(
+            imin = imin,
+            imax = imax,
+            umax = umax,
+            uzero = uzero,
+            "wide integer fields"
+        );
+    });
+
+    let snap = recorder.snapshot();
+    assert_eq!(snap.len(), 1);
+    let fields: std::collections::HashMap<&str, &str> = snap[0]
+        .fields
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+
+    assert_eq!(fields.get("imin"), Some(&imin_s.as_str()));
+    assert_eq!(fields.get("imax"), Some(&imax_s.as_str()));
+    assert_eq!(fields.get("umax"), Some(&umax_s.as_str()));
+    assert_eq!(fields.get("uzero"), Some(&uzero_s.as_str()));
+}
+
+#[test]
+fn dump_to_file_into_readonly_directory_returns_error() {
+    // Permission-denied path: the parent directory is not writable, so file
+    // creation must fail and propagate as an io::Error rather than panicking
+    // or silently dropping the dump.
+    let recorder = FlightRecorder::new(100);
+    recorder.push(make_event("perm-test"));
+
+    let dir = tempfile_dir();
+    let path = dir.join("no-permission.json");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500))
+            .expect("set dir read-only");
+
+        let result = recorder.dump_to_file(&path);
+        assert!(
+            result.is_err(),
+            "dump_to_file into a read-only directory must return an error"
+        );
+        assert!(
+            !path.exists(),
+            "no file should be written when the directory is read-only"
+        );
+
+        // Restore writability so the temp dir can be cleaned up.
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+            .expect("restore dir writability");
+    }
+
+    // On non-Unix we cannot reliably simulate a permission failure, so the
+    // assertion is Unix-only. Keep the test green elsewhere by asserting the
+    // happy path works.
+    #[cfg(not(unix))]
+    {
+        recorder.dump_to_file(&path).expect("write succeeds");
+        assert!(path.exists());
+    }
+}
+
+// ── Compact vs pretty JSON output ────────────────────────────────────
+
+#[test]
+fn dump_to_json_is_compact_and_pretty_variant_indents() {
+    let recorder = FlightRecorder::new(100);
+    recorder.push(make_event("compact-vs-pretty"));
+
+    let compact = recorder.dump_to_json().unwrap();
+    let pretty = recorder.dump_to_json_pretty().unwrap();
+
+    // Compact form has no embedded newlines between tokens.
+    assert!(
+        !compact.contains('\n'),
+        "compact JSON must not contain newlines"
+    );
+    // Pretty form is indented (multi-line).
+    assert!(
+        pretty.contains('\n'),
+        "pretty JSON must be multi-line/indented"
+    );
+
+    // Both decode to the same single event.
+    let c: serde_json::Value = serde_json::from_str(&compact).unwrap();
+    let p: serde_json::Value = serde_json::from_str(&pretty).unwrap();
+    assert_eq!(c.as_array().map_or(0, Vec::len), 1);
+    assert_eq!(p.as_array().map_or(0, Vec::len), 1);
+}
+
+#[test]
+fn envelope_pretty_variant_indents_and_round_trips() {
+    let recorder = FlightRecorder::new(100);
+    recorder.push(make_event("env-pretty"));
+
+    let compact = recorder.dump_envelope_to_json(None).unwrap();
+    let pretty = recorder.dump_envelope_to_json_pretty(None).unwrap();
+
+    assert!(!compact.contains('\n'), "envelope compact is single-line");
+    assert!(pretty.contains('\n'), "envelope pretty is indented");
+
+    // Pretty still round-trips into the typed envelope.
+    let parsed: FlightRecorderDump = serde_json::from_str(&pretty).unwrap();
+    assert_eq!(parsed.event_count, 1);
+    assert_eq!(parsed.events[0].message, "env-pretty");
+}
+
+// ── Observability hooks (on_dump) ────────────────────────────────────
+
+#[test]
+fn on_dump_fires_for_manual_file_dump() {
+    let collected: std::sync::Arc<std::sync::Mutex<Vec<DumpEvent>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let hook = std::sync::Arc::clone(&collected);
+    let recorder =
+        FlightRecorder::new(100).with_on_dump(move |ev| hook.lock().unwrap().push(ev.clone()));
+    recorder.push(make_event("hooked"));
+
+    let dir = tempfile_dir();
+    let path = dir.join("manual.json");
+    recorder.dump_to_file(&path).unwrap();
+
+    let events = collected.lock().unwrap();
+    assert_eq!(
+        events.len(),
+        1,
+        "manual dump should fire the hook exactly once"
+    );
+    let ev = &events[0];
+    assert_eq!(ev.source, DumpSource::Manual);
+    assert_eq!(ev.path.as_deref(), Some(path.as_path()));
+    assert!(ev.bytes_written > 0, "bytes_written must be positive");
+    assert!(
+        ev.trigger_reason.is_none(),
+        "bare dump_to_file carries no reason"
+    );
+}
+
+#[test]
+fn on_dump_fires_for_trigger_dump_with_trigger_source() {
+    use crate::LevelTrigger;
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let collected: std::sync::Arc<std::sync::Mutex<Vec<DumpEvent>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let hook = std::sync::Arc::clone(&collected);
+    let dir = tempfile_dir();
+
+    let recorder =
+        FlightRecorder::new(100).with_on_dump(move |ev| hook.lock().unwrap().push(ev.clone()));
+    let layer = FlightRecorderLayer::new(recorder.clone()).with_dump_on(
+        LevelTrigger::error(),
+        dir.clone(),
+        "incident",
+        10,
+    );
+    let subscriber = tracing_subscriber::registry().with(layer);
+
+    tracing::subscriber::with_default(subscriber, || {
+        tracing::error!("boom");
+    });
+
+    let events = collected.lock().unwrap();
+    assert_eq!(
+        events.len(),
+        1,
+        "trigger dump should fire the hook exactly once"
+    );
+    let ev = &events[0];
+    assert_eq!(ev.source, DumpSource::Trigger);
+    assert_eq!(ev.trigger_reason.as_deref(), Some("level>=ERROR"));
+    assert!(ev.bytes_written > 0);
+    assert!(
+        ev.path.is_some(),
+        "trigger dump must report a destination path"
+    );
+}
+
+#[test]
+fn on_dump_callback_panic_is_contained() {
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let recorder = FlightRecorder::new(100).with_on_dump(|_ev| panic!("misbehaving observer"));
+    let dir = tempfile_dir();
+    let layer = FlightRecorderLayer::new(recorder.clone()).with_dump_on(
+        crate::LevelTrigger::error(),
+        dir.clone(),
+        "boom",
+        10,
+    );
+    let subscriber = tracing_subscriber::registry().with(layer);
+
+    // A panicking callback must NOT abort the trigger path or corrupt state.
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::error!("triggering a dump whose hook panics");
+        });
+    }));
+    assert!(
+        result.is_ok(),
+        "a panicking on_dump callback must be contained, not propagated"
+    );
+
+    // The recorder must remain usable, and a dump file must still have landed.
+    recorder.push(make_event("after-panic"));
+    assert_eq!(recorder.len(), 2);
+    assert!(
+        count_files_matching(&dir, "boom") >= 1,
+        "the dump file must still be written despite the hook panic"
+    );
+}
+
+// ── gzip compression (gzip feature) ──────────────────────────────────
+
+#[cfg(feature = "gzip")]
+#[test]
+fn dump_to_file_gz_writes_valid_gzip_that_decompresses() {
+    use std::io::Read;
+
+    let recorder = FlightRecorder::new(100);
+    recorder.push(make_event("gz-test-one"));
+    recorder.push(make_event("gz-test-two"));
+
+    let dir = tempfile_dir();
+    let path = dir.join("dump.json.gz");
+    recorder.dump_to_file_gz(&path).unwrap();
+
+    assert!(path.exists());
+    let bytes = std::fs::read(&path).unwrap();
+    // gzip magic bytes.
+    assert_eq!(
+        &bytes[0..2],
+        &[0x1f, 0x8b],
+        "file must start with gzip magic"
+    );
+
+    let mut decoder = flate2::read::GzDecoder::new(&bytes[..]);
+    let mut out = String::new();
+    decoder.read_to_string(&mut out).unwrap();
+    let parsed: Vec<serde_json::Value> = serde_json::from_str(&out).unwrap();
+    assert_eq!(parsed.len(), 2);
+
+    // Compression should beat the raw compact JSON for non-trivial input.
+    let raw = recorder.dump_to_json().unwrap();
+    assert!(
+        bytes.len() < raw.len(),
+        "gzip output ({} B) should be smaller than raw JSON ({} B)",
+        bytes.len(),
+        raw.len()
+    );
+}
+
+#[cfg(feature = "gzip")]
+#[test]
+fn dump_envelope_to_file_gz_decompresses_to_valid_envelope() {
+    use std::io::Read;
+
+    let recorder = FlightRecorder::new(100);
+    recorder.push(make_event("env-gz"));
+    let dir = tempfile_dir();
+    let path = dir.join("envelope.json.gz");
+    recorder
+        .dump_envelope_to_file_gz(&path, Some("crash"))
+        .unwrap();
+
+    let bytes = std::fs::read(&path).unwrap();
+    let mut decoder = flate2::read::GzDecoder::new(&bytes[..]);
+    let mut out = String::new();
+    decoder.read_to_string(&mut out).unwrap();
+
+    let parsed: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert!(
+        parsed.is_object(),
+        "decompressed envelope must be an object"
+    );
+    assert_eq!(parsed["schema_version"], 1);
+    assert_eq!(parsed["trigger_reason"], "crash");
+    assert_eq!(parsed["event_count"], 1);
+}
+
+#[cfg(feature = "gzip")]
+#[test]
+fn on_dump_reports_compressed_bytes_for_gz() {
+    let collected: std::sync::Arc<std::sync::Mutex<Vec<DumpEvent>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let hook = std::sync::Arc::clone(&collected);
+    let recorder =
+        FlightRecorder::new(100).with_on_dump(move |ev| hook.lock().unwrap().push(ev.clone()));
+    recorder.push(make_event("hooked-gz"));
+
+    let dir = tempfile_dir();
+    let path = dir.join("hooked.json.gz");
+    recorder.dump_to_file_gz(&path).unwrap();
+
+    let events = collected.lock().unwrap();
+    assert_eq!(events.len(), 1);
+    let ev = &events[0];
+    assert_eq!(ev.source, DumpSource::Manual);
+
+    // The reported bytes must equal the actual on-disk (compressed) size.
+    let on_disk = std::fs::metadata(&path).unwrap().len();
+    assert_eq!(
+        ev.bytes_written, on_disk as usize,
+        "on_dump must report the compressed byte count"
+    );
+}
+
+// ── Allocation profiling (on-demand) ─────────────────────────────────
+//
+// A counting global allocator that wraps the system allocator, used to
+// characterize how many heap allocations the `on_event` hot path performs
+// per event. It delegates to `System` (identical behaviour, plus a relaxed
+// atomic increment per allocation), so it is harmless for the rest of the
+// suite.
+//
+// The measurement test is `#[ignore]`d because a global counter is perturbed
+// by parallel test execution; run it on demand:
+//
+//   cargo test profile_allocations -- --ignored --nocapture
+
+use std::alloc::{GlobalAlloc, Layout, System};
+
+static ALLOC_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+struct CountingAllocator;
+
+unsafe impl GlobalAlloc for CountingAllocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        ALLOC_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        System.alloc(layout)
+    }
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        System.dealloc(ptr, layout)
+    }
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        // Only count a realloc as a new allocation when it grows.
+        if new_size > layout.size() {
+            ALLOC_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        System.realloc(ptr, layout, new_size)
+    }
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        ALLOC_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        System.alloc_zeroed(layout)
+    }
+}
+
+#[global_allocator]
+static GLOBAL_ALLOC: CountingAllocator = CountingAllocator;
+
+#[test]
+#[ignore = "allocation profiling; run with --ignored --nocapture"]
+fn profile_allocations_on_event_hot_path() {
+    use std::sync::atomic::Ordering;
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let recorder = FlightRecorder::new(2000);
+    let subscriber =
+        tracing_subscriber::registry().with(FlightRecorderLayer::new(recorder.clone()));
+    let dispatch = tracing::Dispatch::new(subscriber);
+
+    const N: u64 = 1000;
+    tracing::dispatcher::with_default(&dispatch, || {
+        // Warm up: the first event can trigger lazy allocations in the
+        // registry/subscriber; exclude it from the measurement.
+        tracing::info!(warm = true, "warmup");
+
+        let before = ALLOC_COUNT.load(Ordering::Relaxed);
+        for i in 0..N {
+            tracing::info!(count = i, target = "prof", "processing request");
+        }
+        let after = ALLOC_COUNT.load(Ordering::Relaxed);
+
+        let total = after.saturating_sub(before);
+        let per_event = total / N;
+        println!(
+            "hot-path allocations: {total} total over {N} events ≈ {per_event} allocs/event \
+             (FieldVisitor + span capture + push)"
+        );
+        // Loose characterization bound: catch gross regressions without flaking.
+        assert!(
+            per_event < 50,
+            "per-event allocation count {per_event} exceeds expected range"
+        );
+    });
 }

@@ -19,13 +19,15 @@ exclude = ["/target", "/.github", "/docs/status", "/docs/planning", "/docs/RELEA
 # with `default = []` and the OpenAPI schema (the feature users would want
 # to see) is invisible.
 [package.metadata.docs.rs]
-features = ["openapi"]
+features = ["openapi", "gzip"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = []
 # Enables `utoipa::ToSchema` derive on `CapturedEvent` for OpenAPI documentation.
 openapi = ["dep:utoipa"]
+# Enables gzip-compressed dump output (`dump_to_file_gz`, `dump_envelope_to_file_gz`).
+gzip = ["dep:flate2"]
 
 [dependencies]
 tracing = "0.1"
@@ -37,6 +39,8 @@ chrono = { version = "0.4", features = ["serde"] }
 # schema). Paired with serde's `rc` feature above, `SpanContext.fields` can be
 # `Arc<Vec<…>>` for O(1) clone-per-event without breaking OpenAPI generation.
 utoipa = { version = "5", optional = true, features = ["chrono", "rc_schema"] }
+# Optional gzip compression for dump output, enabled by the `gzip` feature.
+flate2 = { version = "1.0", optional = true }
 
 [lints.clippy]
 pedantic = { level = "deny", priority = -1 }
@@ -61,3 +65,10 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(docsrs)'] }
 
 [dev-dependencies]
 proptest = "1.11.0"
+criterion = "0.5"
+
+# Benchmarks run with their own (`harness = false`) entry point so criterion
+# can own `main`. Invoke with `cargo bench`.
+[[bench]]
+name = "push_dump"
+harness = false

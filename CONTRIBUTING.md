@@ -19,10 +19,11 @@ philosophy.
 ## Development Setup
 
 ```sh
-cargo test --all-features          # canonical test gate (64 unit + 6 doctests)
+cargo test --all-features          # canonical test gate (includes openapi + gzip + proptest)
 cargo clippy --all-features --all-targets -- -D warnings
 cargo fmt --check
 cargo doc --all-features --no-deps
+cargo bench                        # optional: hot-path benchmarks
 ```
 
 ## Data Flow

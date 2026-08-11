@@ -80,7 +80,9 @@ mod trigger;
 #[doc = include_str!("../README.md")]
 struct _ReadmeDoctests;
 
-pub use capture::{CapturedEvent, FlightRecorderDump, SpanContext, DUMP_SCHEMA_VERSION};
+pub use capture::{
+    CapturedEvent, DumpEvent, DumpSource, FlightRecorderDump, SpanContext, DUMP_SCHEMA_VERSION,
+};
 pub use layer::{FlightRecorder, FlightRecorderLayer};
 pub use trigger::{LevelTrigger, OnceTrigger, Trigger};
 

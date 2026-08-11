@@ -25,9 +25,11 @@ The recorder pays zero I/O cost until a snapshot is triggered.
 - **Configurable span capture** — disable span storage for max throughput via `with_span_capture(recorder, false)`
 - **Automatic snapshots on failure** — `Trigger` trait + `LevelTrigger`/`OnceTrigger` dump the buffer automatically when an error fires, no manual wiring
 - **Secret redaction** — fields named `token`, `password`, `secret`, `authorization`, `cookie`, `session_id`, etc. are automatically redacted to `[REDACTED]`
-- **JSON snapshots** — `dump_to_json()`, `dump_to_file()`, `dump_to_writer()`, `dump_with_retention()`
+- **JSON snapshots** — compact by default (`dump_to_json`), with `dump_to_json_pretty` for human-readable output; plus `dump_to_file`, `dump_to_writer`, `dump_with_retention`
 - **Dump metadata envelope** — `FlightRecorderDump` wraps events with schema version, timestamp, event count, crate version, and trigger reason
 - **NDJSON output** — `dump_to_json_lines()` and `dump_to_writer_lines()` for streamable, line-delimited JSON ingestible by log pipelines
+- **Gzip compression** — `dump_to_file_gz` / `dump_envelope_to_file_gz` behind the `gzip` feature for 5-10× smaller snapshots
+- **Observability hooks** — `with_on_dump(callback)` fires after every file dump with the destination path, byte count, duration, and source (manual vs trigger)
 - **Optional OpenAPI** — `utoipa::ToSchema` derive behind the `openapi` feature flag
 - **Minimal dependencies** — `tracing` ecosystem + `serde`/`chrono` for serialization
 
@@ -189,6 +191,27 @@ Enable the `openapi` feature to derive `utoipa::ToSchema` on `CapturedEvent`, `S
 ```toml
 [dependencies]
 tracing-flight-recorder = { version = "0.2", features = ["openapi"] }
+```
+
+## Compression & Observability
+
+**Gzip compression** (behind the `gzip` feature) writes snapshots 5-10× smaller,
+useful when shipping incident files over the network or archiving them. Enable
+the feature, then call `dump_to_file_gz` / `dump_envelope_to_file_gz`:
+
+```toml
+[dependencies]
+tracing-flight-recorder = { version = "0.2", features = ["gzip"] }
+```
+
+**Observability hooks** let the host react to every persisted dump without
+polling — emit a metric, ship the file, enqueue an audit entry:
+
+```rust,no_run
+use tracing_flight_recorder::FlightRecorder;
+let recorder = FlightRecorder::new(1000)
+    .with_on_dump(|ev| eprintln!("dumped {} bytes to {:?}", ev.bytes_written, ev.path));
+// Every file dump (manual and automatic trigger dumps) now invokes the callback.
 ```
 
 ## How It Works

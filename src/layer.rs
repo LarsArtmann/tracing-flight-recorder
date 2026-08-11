@@ -1,7 +1,8 @@
 //! Ring-buffer flight recorder and `tracing_subscriber::Layer` implementation.
 
 use crate::capture::{
-    CapturedEvent, FieldVisitor, FlightRecorderDump, SpanContext, DUMP_SCHEMA_VERSION,
+    CapturedEvent, DumpEvent, DumpSource, FieldVisitor, FlightRecorderDump, SpanContext,
+    DUMP_SCHEMA_VERSION,
 };
 use crate::trigger::Trigger;
 use crate::DEFAULT_CAPACITY;
@@ -9,19 +10,25 @@ use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use tracing::{Event, Subscriber};
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::Layer;
 
+/// Shared, thread-safe dump-observability callback.
+type DumpHook = Arc<dyn Fn(&DumpEvent) + Send + Sync>;
+
 /// A bounded in-memory ring buffer of tracing events.
 ///
-/// Clone this handle freely — all clones share the same underlying buffer.
+/// Clone this handle freely — all clones share the same underlying buffer
+/// (and the same [`on_dump`](Self::with_on_dump) callback, if set).
 /// See [`FlightRecorderLayer`] for how to connect this to a `tracing` subscriber.
 #[derive(Clone)]
 pub struct FlightRecorder {
     buffer: Arc<Mutex<VecDeque<CapturedEvent>>>,
     capacity: usize,
+    on_dump: Option<DumpHook>,
 }
 
 impl FlightRecorder {
@@ -31,6 +38,7 @@ impl FlightRecorder {
         Self {
             buffer: Arc::new(Mutex::new(VecDeque::with_capacity(capacity))),
             capacity,
+            on_dump: None,
         }
     }
 
@@ -38,6 +46,29 @@ impl FlightRecorder {
     #[must_use]
     pub fn with_default_capacity() -> Self {
         Self::new(DEFAULT_CAPACITY)
+    }
+
+    /// Register a callback invoked after every dump that persists to a file
+    /// (manual dumps, retention dumps, and automatic trigger dumps).
+    ///
+    /// All clones of this recorder share the same callback. The callback is
+    /// invoked with a [`DumpEvent`] carrying the destination path, byte count,
+    /// wall-clock duration, trigger reason, and source (manual vs trigger). It
+    /// is best-effort: a panicking callback is contained and never propagates
+    /// back into the recording or trigger path.
+    ///
+    /// ```no_run
+    /// # use tracing_flight_recorder::FlightRecorder;
+    /// let recorder = FlightRecorder::new(1000)
+    ///     .with_on_dump(|ev| eprintln!("wrote {} bytes to {:?}", ev.bytes_written, ev.path));
+    /// ```
+    #[must_use]
+    pub fn with_on_dump<F>(mut self, hook: F) -> Self
+    where
+        F: Fn(&DumpEvent) + Send + Sync + 'static,
+    {
+        self.on_dump = Some(Arc::new(hook));
+        self
     }
 
     /// Push a captured event into the ring buffer, evicting the oldest if at capacity.
@@ -66,25 +97,53 @@ impl FlightRecorder {
             .collect()
     }
 
-    /// Serialize the buffer to a JSON string.
+    /// Serialize the buffer to a **compact** JSON string.
+    ///
+    /// Compact is the default because flight-recorder snapshots are often
+    /// persisted automatically (trigger dumps, retention pruning) where file
+    /// size matters. For human-readable output use [`dump_to_json_pretty`](Self::dump_to_json_pretty).
     ///
     /// # Errors
     ///
     /// Returns `serde_json::Error` if serialization fails.
     pub fn dump_to_json(&self) -> serde_json::Result<String> {
         let events = self.snapshot();
+        serde_json::to_string(&events)
+    }
+
+    /// Serialize the buffer to a pretty-printed (indented) JSON string.
+    ///
+    /// Like [`dump_to_json`](Self::dump_to_json) but with whitespace for
+    /// human reading. Roughly 2-3× larger than the compact form.
+    ///
+    /// # Errors
+    ///
+    /// Returns `serde_json::Error` if serialization fails.
+    pub fn dump_to_json_pretty(&self) -> serde_json::Result<String> {
+        let events = self.snapshot();
         serde_json::to_string_pretty(&events)
     }
 
-    /// Write the buffer as pretty-printed JSON to any writer.
+    /// Write the buffer as **compact** JSON to any writer.
     ///
     /// Streams directly to the writer without buffering the full JSON string,
-    /// making it suitable for large buffers or network sinks.
+    /// making it suitable for large buffers or network sinks. For indented
+    /// output use [`dump_to_writer_pretty`](Self::dump_to_writer_pretty).
     ///
     /// # Errors
     ///
     /// Returns `io::Error` if serialization or writing fails.
     pub fn dump_to_writer(&self, writer: &mut dyn std::io::Write) -> std::io::Result<()> {
+        let events = self.snapshot();
+        serde_json::to_writer(writer, &events).map_err(std::io::Error::other)
+    }
+
+    /// Write the buffer as pretty-printed (indented) JSON to any writer.
+    ///
+    /// # Errors
+    ///
+    /// Returns `io::Error` if serialization or writing fails.
+    pub fn dump_to_writer_pretty(&self, writer: &mut dyn std::io::Write) -> std::io::Result<()> {
         let events = self.snapshot();
         serde_json::to_writer_pretty(writer, &events).map_err(std::io::Error::other)
     }
@@ -127,16 +186,29 @@ impl FlightRecorder {
         Ok(())
     }
 
-    /// Write the buffer to a file as pretty-printed JSON.
+    /// Write the buffer to a file as **compact** JSON.
     ///
-    /// Creates parent directories if they don't exist.
+    /// Creates parent directories if they don't exist. For indented output
+    /// use [`dump_to_file_pretty`](Self::dump_to_file_pretty).
     ///
     /// # Errors
     ///
     /// Returns `io::Error` if JSON serialization, directory creation, or file writing fails.
     pub fn dump_to_file(&self, path: &Path) -> std::io::Result<()> {
         let json = self.dump_to_json().map_err(std::io::Error::other)?;
-        write_json_file(path, &json)
+        self.write_and_report(path, &json, None, DumpSource::Manual)
+    }
+
+    /// Write the buffer to a file as pretty-printed (indented) JSON.
+    ///
+    /// Creates parent directories if they don't exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns `io::Error` if JSON serialization, directory creation, or file writing fails.
+    pub fn dump_to_file_pretty(&self, path: &Path) -> std::io::Result<()> {
+        let json = self.dump_to_json_pretty().map_err(std::io::Error::other)?;
+        self.write_and_report(path, &json, None, DumpSource::Manual)
     }
 
     /// Build a [`FlightRecorderDump`] envelope around the current buffer.
@@ -159,13 +231,37 @@ impl FlightRecorder {
         }
     }
 
-    /// Serialize the buffer as a [`FlightRecorderDump`] envelope to a JSON string.
+    /// Serialize the buffer as a [`FlightRecorderDump`] envelope to a **compact** JSON string.
     ///
     /// # Errors
     ///
     /// Returns `serde_json::Error` if serialization fails.
     pub fn dump_envelope_to_json(&self, reason: Option<&str>) -> serde_json::Result<String> {
+        serde_json::to_string(&self.dump_envelope(reason))
+    }
+
+    /// Serialize the buffer as a [`FlightRecorderDump`] envelope to a pretty-printed JSON string.
+    ///
+    /// # Errors
+    ///
+    /// Returns `serde_json::Error` if serialization fails.
+    pub fn dump_envelope_to_json_pretty(&self, reason: Option<&str>) -> serde_json::Result<String> {
         serde_json::to_string_pretty(&self.dump_envelope(reason))
+    }
+
+    /// Write the buffer as a [`FlightRecorderDump`] envelope (**compact** JSON) to a file.
+    ///
+    /// Creates parent directories if they don't exist. For indented output use
+    /// [`dump_envelope_to_file_pretty`](Self::dump_envelope_to_file_pretty).
+    ///
+    /// # Errors
+    ///
+    /// Returns `io::Error` if serialization, directory creation, or writing fails.
+    pub fn dump_envelope_to_file(&self, path: &Path, reason: Option<&str>) -> std::io::Result<()> {
+        let json = self
+            .dump_envelope_to_json(reason)
+            .map_err(std::io::Error::other)?;
+        self.write_and_report(path, &json, reason, DumpSource::Manual)
     }
 
     /// Write the buffer as a [`FlightRecorderDump`] envelope (pretty JSON) to a file.
@@ -175,11 +271,115 @@ impl FlightRecorder {
     /// # Errors
     ///
     /// Returns `io::Error` if serialization, directory creation, or writing fails.
-    pub fn dump_envelope_to_file(&self, path: &Path, reason: Option<&str>) -> std::io::Result<()> {
+    pub fn dump_envelope_to_file_pretty(
+        &self,
+        path: &Path,
+        reason: Option<&str>,
+    ) -> std::io::Result<()> {
+        let json = self
+            .dump_envelope_to_json_pretty(reason)
+            .map_err(std::io::Error::other)?;
+        self.write_and_report(path, &json, reason, DumpSource::Manual)
+    }
+
+    /// Write the buffer to a file as **gzip-compressed** compact JSON.
+    ///
+    /// Requires the `gzip` feature. The compressed output is typically 5-10×
+    /// smaller than the equivalent pretty JSON, which matters when snapshots
+    /// are shipped over the network or archived. Fires the
+    /// [`on_dump`](Self::with_on_dump) callback with the *compressed* byte
+    /// count.
+    ///
+    /// # Errors
+    ///
+    /// Returns `io::Error` if serialization, compression, directory creation,
+    /// or file writing fails.
+    #[cfg(feature = "gzip")]
+    pub fn dump_to_file_gz(&self, path: &Path) -> std::io::Result<()> {
+        let json = self.dump_to_json().map_err(std::io::Error::other)?;
+        self.write_gz_and_report(path, &json, None, DumpSource::Manual)
+    }
+
+    /// Write the buffer as a gzip-compressed [`FlightRecorderDump`] envelope.
+    ///
+    /// Requires the `gzip` feature. Like
+    /// [`dump_to_file_gz`](Self::dump_to_file_gz) but wraps the events in the
+    /// self-describing envelope. Fires the
+    /// [`on_dump`](Self::with_on_dump) callback with the *compressed* byte count.
+    ///
+    /// # Errors
+    ///
+    /// Returns `io::Error` if serialization, compression, directory creation,
+    /// or file writing fails.
+    #[cfg(feature = "gzip")]
+    pub fn dump_envelope_to_file_gz(
+        &self,
+        path: &Path,
+        reason: Option<&str>,
+    ) -> std::io::Result<()> {
         let json = self
             .dump_envelope_to_json(reason)
             .map_err(std::io::Error::other)?;
-        write_json_file(path, &json)
+        self.write_gz_and_report(path, &json, reason, DumpSource::Manual)
+    }
+
+    /// Gzip-compress `json`, write it to `path`, and report the *compressed*
+    /// byte count to the [`on_dump`](Self::with_on_dump) callback.
+    #[cfg(feature = "gzip")]
+    fn write_gz_and_report(
+        &self,
+        path: &Path,
+        json: &str,
+        reason: Option<&str>,
+        source: DumpSource,
+    ) -> std::io::Result<()> {
+        let start = Instant::now();
+        let compressed = gzip_encode(json)?;
+        write_bytes_file(path, &compressed)?;
+        let duration = start.elapsed();
+        let event = DumpEvent {
+            path: Some(path.to_path_buf()),
+            bytes_written: compressed.len(),
+            duration,
+            trigger_reason: reason.map(str::to_string),
+            source,
+        };
+        self.report(&event);
+        Ok(())
+    }
+
+    /// Write `json` to `path`, then deliver a [`DumpEvent`] to the
+    /// [`on_dump`](Self::with_on_dump) callback (if any).
+    ///
+    /// Centralizes hook firing so every file-writing dump reports exactly once
+    /// with accurate byte count and duration.
+    fn write_and_report(
+        &self,
+        path: &Path,
+        json: &str,
+        reason: Option<&str>,
+        source: DumpSource,
+    ) -> std::io::Result<()> {
+        let start = Instant::now();
+        write_json_file(path, json)?;
+        let duration = start.elapsed();
+        let event = DumpEvent {
+            path: Some(path.to_path_buf()),
+            bytes_written: json.len(),
+            duration,
+            trigger_reason: reason.map(str::to_string),
+            source,
+        };
+        self.report(&event);
+        Ok(())
+    }
+
+    /// Deliver `event` to the registered callback, swallowing any panic so a
+    /// misbehaving observer can never destabilize the recorder or its trigger path.
+    fn report(&self, event: &DumpEvent) {
+        if let Some(hook) = &self.on_dump {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| hook(event)));
+        }
     }
 
     /// Number of events currently in the buffer.
@@ -236,13 +436,8 @@ impl FlightRecorder {
         prefix: &str,
         max_files: usize,
     ) -> std::io::Result<PathBuf> {
-        let path = prepare_retention_path(dir, prefix)?;
-
-        self.dump_to_file(&path)?;
-
-        cleanup_old_snapshots(dir, prefix, max_files);
-
-        Ok(path)
+        let json = self.dump_to_json().map_err(std::io::Error::other)?;
+        self.retention_write(dir, prefix, max_files, &json, None, DumpSource::Manual)
     }
 
     /// Like [`dump_with_retention`](Self::dump_with_retention) but writes a
@@ -260,12 +455,28 @@ impl FlightRecorder {
         max_files: usize,
         reason: Option<&str>,
     ) -> std::io::Result<PathBuf> {
+        let json = self
+            .dump_envelope_to_json(reason)
+            .map_err(std::io::Error::other)?;
+        self.retention_write(dir, prefix, max_files, &json, reason, DumpSource::Manual)
+    }
+
+    /// Shared timestamped-write + retention-prune + hook-report core for
+    /// [`dump_with_retention`](Self::dump_with_retention) and
+    /// [`dump_with_retention_envelope`](Self::dump_with_retention_envelope),
+    /// also used by the trigger path with [`DumpSource::Trigger`].
+    fn retention_write(
+        &self,
+        dir: &Path,
+        prefix: &str,
+        max_files: usize,
+        json: &str,
+        reason: Option<&str>,
+        source: DumpSource,
+    ) -> std::io::Result<PathBuf> {
         let path = prepare_retention_path(dir, prefix)?;
-
-        self.dump_envelope_to_file(&path, reason)?;
-
+        self.write_and_report(&path, json, reason, source)?;
         cleanup_old_snapshots(dir, prefix, max_files);
-
         Ok(path)
     }
 }
@@ -281,6 +492,26 @@ fn write_json_file(path: &Path, json: &str) -> std::io::Result<()> {
         }
     }
     std::fs::write(path, json)
+}
+
+/// Write a byte buffer to `path`, creating parent directories first.
+#[cfg(feature = "gzip")]
+fn write_bytes_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    std::fs::write(path, bytes)
+}
+
+/// Gzip-compress `json` into an in-memory buffer. Requires the `gzip` feature.
+#[cfg(feature = "gzip")]
+fn gzip_encode(json: &str) -> std::io::Result<Vec<u8>> {
+    use std::io::Write as _;
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder.write_all(json.as_bytes())?;
+    encoder.finish()
 }
 
 /// Create `dir` and resolve a non-colliding timestamped path
@@ -365,6 +596,7 @@ impl std::fmt::Debug for FlightRecorder {
         f.debug_struct("FlightRecorder")
             .field("capacity", &self.capacity)
             .field("len", &len)
+            .field("on_dump", &self.on_dump.is_some())
             .finish()
     }
 }
@@ -462,14 +694,22 @@ impl FlightRecorderLayer {
 
     /// Write a snapshot envelope to the configured dump directory.
     ///
-    /// No-op when no dump policy is attached.
+    /// No-op when no dump policy is attached. Reports the dump to the
+    /// [`on_dump`](FlightRecorder::with_on_dump) callback with
+    /// [`DumpSource::Trigger`].
     fn fire_dump(&self, reason: &str) -> std::io::Result<()> {
         if let Some(cfg) = &self.dump_config {
-            self.recorder.dump_with_retention_envelope(
+            let json = self
+                .recorder
+                .dump_envelope_to_json(Some(reason))
+                .map_err(std::io::Error::other)?;
+            self.recorder.retention_write(
                 &cfg.dir,
                 &cfg.prefix,
                 cfg.max_files,
+                &json,
                 Some(reason),
+                DumpSource::Trigger,
             )?;
         }
         Ok(())
