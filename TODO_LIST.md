@@ -19,24 +19,8 @@
 
 | Task | Status | Effort | Notes |
 |------|--------|--------|-------|
-| Tag and publish v0.2.0 + v0.3.0 | 🔴 `TODO` | ~1h | v0.1.1 is the latest published version. `master` has two releases' worth of untagged changes: v0.2.0 (span context, triggers, envelope, `Arc` span fields — 4 breaking changes) and v0.3.0 (gzip, `on_dump`, compact-default, benchmarks — 1 breaking change). `Cargo.toml` is at `0.2.0`. Follow `docs/RELEASE.md` checklist: bump version, verify `cargo publish --dry-run --all-features`, tag, push. |
-
-## High Impact — Correctness & Reliability
-
-| Task | Status | Effort | Notes |
-|------|--------|--------|-------|
-| Fix `OnceTrigger` race condition | 🔴 `TODO` | ~30m | `should_dump` uses non-atomic load-check-store (`load(Acquire)` → `store(Release)`) instead of `compare_exchange`. Under concurrent error bursts, multiple dumps fire despite `OnceTrigger`. The code comment acknowledges this ("at worst two dumps") but for a diagnostic tool, two dumps = ambiguity about which is canonical. Fix: `compare_exchange(false, true, …)`. `src/trigger.rs:141-147` |
-| Surface trigger dump failures | 🔴 `TODO` | ~1h | `on_event` discards the `fire_dump` result: `let _result = self.fire_dump(&reason);` (`src/layer.rs:778`). If the dump fails (disk full, permissions denied), the operator thinks the incident was captured but it wasn't. The `OnceTrigger` makes this worse: the token is consumed before the dump runs, so there's no retry. Wire failures into the `on_dump` callback or emit a `tracing::error!`. Identified in `docs/status/2026-08-11_18-51…md` section d.2. |
-
-## Medium Impact — API Completeness & Testing
-
-| Task | Status | Effort | Notes |
-|------|--------|--------|-------|
-| Implement `Debug` for `FlightRecorderLayer` | 🔴 `TODO` | ~30m | The layer holds `Option<DumpConfig>` with `Box<dyn Trigger>` — none of which implement `Debug`, so operators can't `dbg!()` the layer to inspect trigger state. Consider requiring `Trigger: Debug` or a manual impl. `src/layer.rs:611` |
-| Add `dump_envelope_to_writer` | 🔴 `TODO` | ~1h | API asymmetry: array dumps have `dump_to_writer` + `dump_to_writer_lines`, but the envelope API (`dump_envelope`, `dump_envelope_to_json`, `dump_envelope_to_file`) has no streaming writer variant. `src/layer.rs` |
-| Close pretty-variant test gaps | 🔴 `TODO` | ~1h | `dump_to_writer_pretty`, `dump_to_file_pretty`, `dump_envelope_to_file_pretty` are implemented but have no tests. The compact variants are tested; the pretty variants differ only in `to_writer_pretty` vs `to_writer` but should still be covered. Identified in `docs/status/2026-08-11_19-32…md` section e. |
-| Close `on_dump` coverage gaps | 🔴 `TODO` | ~1h | `on_dump` callback is tested for manual `dump_to_file` and trigger dumps, but NOT for `dump_with_retention` or `dump_envelope_to_file` (same shared `write_and_report` path, but no explicit test). Identified in `docs/status/2026-08-11_19-32…md` section b. |
-| Add `examples/compression.rs` + `examples/observability.rs` | 🔴 `TODO` | ~1h | Gzip compression and `on_dump` hooks shipped with zero runnable examples. The crate has 5 examples but none cover the two newest features. |
+| Tag and publish v0.2.0 | 🔴 `TODO` | ~45m | Code is ready, tests pass (88 unit + 10 doc), clippy clean, CHANGELOG written. `Cargo.toml` is at `0.2.0`. Follow `docs/RELEASE.md` checklist: verify `cargo publish --dry-run --all-features`, tag, push. |
+| Tag and publish v0.3.0 | 🔴 `TODO` | ~45m | Depends on v0.2.0 shipping first. Bump `Cargo.toml` to `0.3.0`, move CHANGELOG `[Unreleased]` → `[0.3.0]`, update README version refs `0.2` → `0.3`. |
 
 ## Low Impact — Features & Polish
 
@@ -45,7 +29,6 @@
 | Wire gzip into trigger/retention path | 🔴 `TODO` | ~2h | The `gzip` feature only covers manual `dump_to_file_gz` / `dump_envelope_to_file_gz`. Automatic trigger dumps (`fire_dump` → `retention_write`) and `dump_with_retention` are always uncompressed. Need `dump_with_retention_gz` or a compression config on `with_dump_on`. |
 | `FlightRecorderBuilder` | 🔴 `TODO` | ~4h | Unify capacity, span capture, `on_dump`, compression, and retention into one builder. Currently scattered across `FlightRecorder::new`/`with_on_dump` and `FlightRecorderLayer::new`/`with_span_capture`/`with_dump_on`. See `ROADMAP.md` theme 4. |
 | Configurable redaction patterns | 🔴 `TODO` | ~2h | Sensitive-field patterns are hardcoded (14 patterns, `src/capture.rs`). Users with custom secret names (e.g. `x-api-key`) cannot add them without forking. Accept a `HashSet<String>` or predicate. |
-| Document `with_dump_on` builder ordering caveat | 🔴 `TODO` | ~10m | `with_dump_on` consumes `self` and must be called BEFORE `with_filter` (which wraps the layer in `Filtered<L, F, S>`). Documented only in `examples/trigger.rs`, not in `AGENTS.md` gotchas. |
 
 ## Deferred
 

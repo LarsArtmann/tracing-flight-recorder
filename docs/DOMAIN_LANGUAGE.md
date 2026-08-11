@@ -3,48 +3,76 @@
 Ubiquitous vocabulary for the `tracing-flight-recorder` crate. Every term below
 appears in source code, tests, or documentation — there are no dead terms.
 
+Citations use **symbol names** (`Type::method`) instead of line numbers so they
+remain accurate as the code grows. File paths point to the defining source file.
+
 ---
 
 ## Core Concepts
 
 | Term | Definition | Where used |
 |------|------------|------------|
-| **Flight Recorder** | An in-memory, bounded ring buffer that continuously records `tracing` events, enabling on-demand retrieval of recent verbose (DEBUG/TRACE) context when something goes wrong. Inspired by Go 1.25's `trace.FlightRecorder`. | `FlightRecorder` struct — `src/layer.rs:17` |
-| **Ring Buffer** | The fixed-capacity circular buffer (`VecDeque`) inside `FlightRecorder` that stores events and evicts the oldest when full. | `FlightRecorder.buffer` field — `src/layer.rs:18` |
-| **Snapshot** | A point-in-time copy (cloned `Vec<CapturedEvent>`) of all events currently in the ring buffer, returned in insertion order (oldest first). | `FlightRecorder::snapshot()` — `src/layer.rs:52` |
-| **Eviction** | The removal (`pop_front`) of the oldest event from the ring buffer when it is at capacity, to make room for a new event. | `FlightRecorder::push()` — `src/layer.rs:39` |
-| **Capacity** | The maximum number of events the ring buffer retains before evicting old ones. Defaults to 1000 (`DEFAULT_CAPACITY`). | `FlightRecorder.capacity` — `src/layer.rs:19`; `DEFAULT_CAPACITY` — `src/lib.rs:77` |
+| **Flight Recorder** | An in-memory, bounded ring buffer that continuously records `tracing` events, enabling on-demand retrieval of recent verbose (DEBUG/TRACE) context when something goes wrong. Inspired by Go 1.25's `trace.FlightRecorder`. | `FlightRecorder` struct — `src/layer.rs` |
+| **Ring Buffer** | The fixed-capacity circular buffer (`VecDeque`) inside `FlightRecorder` that stores events and evicts the oldest when full. | `FlightRecorder.buffer` field — `src/layer.rs` |
+| **Snapshot** | A point-in-time copy (cloned `Vec<CapturedEvent>`) of all events currently in the ring buffer, returned in insertion order (oldest first). | `FlightRecorder::snapshot()` — `src/layer.rs` |
+| **Eviction** | The removal (`pop_front`) of the oldest event from the ring buffer when it is at capacity, to make room for a new event. | `FlightRecorder::push()` — `src/layer.rs` |
+| **Capacity** | The maximum number of events the ring buffer retains before evicting old ones. Defaults to 1000 (`DEFAULT_CAPACITY`). | `FlightRecorder.capacity` — `src/layer.rs`; `DEFAULT_CAPACITY` — `src/lib.rs` |
+| **Span Context** | The full hierarchy of spans an event was emitted inside, including each span's name and key-value fields. Stored root-first (outermost span first). Populated automatically by the layer when `capture_span_context` is enabled (default). | `CapturedEvent.spans` — `src/capture.rs`; `FlightRecorderLayer::with_span_capture()` — `src/layer.rs` |
 
 ## Data Structures
 
 | Term | Definition | Where used |
 |------|------------|------------|
-| **Captured Event** | A serializable struct representing a single `tracing::Event` — timestamp, severity level, target, message, and structured fields. The unit of data stored in the ring buffer. | `CapturedEvent` struct — `src/capture.rs:14` |
-| **Field Visitor** | A `tracing::field::Visit` implementation that traverses all fields on an event, collecting key-value pairs, with special-case extraction of the `"message"` field and automatic redaction of sensitive values. | `FieldVisitor` struct — `src/capture.rs:54` |
-| **Timestamp** | The UTC date-time at which the event was observed, set via `chrono::Utc::now()` at capture time. | `CapturedEvent.timestamp` — `src/capture.rs:16` |
-| **Level / Severity** | The `ERROR`/`WARN`/`INFO`/`DEBUG`/`TRACE` classification of an event. | `CapturedEvent.level` — `src/capture.rs:18` |
-| **Target** | The module path of a `tracing` event, derived from `event.metadata().target()`. | `CapturedEvent.target` — `src/capture.rs:20` |
-| **Message Field** | The conventional `tracing` field named `"message"` holding the human-readable event text; extracted separately from structured fields. | `FieldVisitor::take_message()` — `src/capture.rs:61` |
-| **Fields (Structured Fields)** | All non-message key-value pairs attached to a `tracing` event, stored as `Vec<(String, String)>`. | `CapturedEvent.fields` — `src/capture.rs:24` |
+| **Captured Event** | A serializable struct representing a single `tracing::Event` — timestamp, severity level, target, message, structured fields, and span hierarchy. The unit of data stored in the ring buffer. | `CapturedEvent` struct — `src/capture.rs` |
+| **Span Context (type)** | A single entry in the span hierarchy: span name + key-value fields (sensitive fields redacted). Fields are `Arc<Vec<…>>` so all events in the same span share one allocation. | `SpanContext` struct — `src/capture.rs` |
+| **Field Visitor** | A `tracing::field::Visit` implementation that traverses all fields on an event, collecting key-value pairs, with special-case extraction of the `"message"` field and automatic redaction of sensitive values. | `FieldVisitor` struct — `src/capture.rs` |
+| **Timestamp** | The UTC date-time at which the event was observed, set via `chrono::Utc::now()` at capture time. | `CapturedEvent.timestamp` — `src/capture.rs` |
+| **Level / Severity** | The `ERROR`/`WARN`/`INFO`/`DEBUG`/`TRACE` classification of an event, stored as `Cow<'static, str>` for zero-allocation on known levels. | `CapturedEvent.level` — `src/capture.rs` |
+| **Target** | The module path of a `tracing` event, derived from `event.metadata().target()`. | `CapturedEvent.target` — `src/capture.rs` |
+| **Message Field** | The conventional `tracing` field named `"message"` holding the human-readable event text; extracted separately from structured fields. | `FieldVisitor::take_message()` — `src/capture.rs` |
+| **Fields (Structured Fields)** | All non-message key-value pairs attached to a `tracing` event, stored as `Vec<(String, String)>`. | `CapturedEvent.fields` — `src/capture.rs` |
+
+## Dump Envelope & Observability
+
+| Term | Definition | Where used |
+|------|------------|------------|
+| **Dump Envelope** | A self-describing wrapper around the event array: schema version, capture timestamp, crate version, event count, and trigger reason. Recommended for incident snapshots because it survives being detached from the running process. | `FlightRecorderDump` struct — `src/capture.rs`; `FlightRecorder::dump_envelope()` — `src/layer.rs` |
+| **Schema Version** | An integer (`DUMP_SCHEMA_VERSION`, currently `1`) identifying the envelope structure so consumers can branch on a stable value instead of guessing from field presence. | `DUMP_SCHEMA_VERSION` — `src/capture.rs` |
+| **Dump Event** | Payload delivered to the `on_dump` callback after a snapshot is persisted: destination path, byte count, wall-clock duration, trigger reason, and source (manual vs trigger). | `DumpEvent` struct — `src/capture.rs` |
+| **Dump Source** | Enum distinguishing dumps requested by application code (`Manual`) from those fired automatically by a trigger (`Trigger`). | `DumpSource` enum — `src/capture.rs` |
+| **On-Dump Callback** | A best-effort observer registered via `FlightRecorder::with_on_dump()`. Fires after every file-writing dump (manual, retention, and automatic trigger dumps) but not for in-memory serialization. A panicking callback is contained via `catch_unwind` and never destabilizes the recorder. | `FlightRecorder::with_on_dump()` — `src/layer.rs` |
 
 ## Operations
 
 | Term | Definition | Where used |
 |------|------------|------------|
-| **Dump** | Serializing the ring-buffer contents to an external format — a JSON string (`dump_to_json`) or a file (`dump_to_file`). | `FlightRecorder::dump_to_json()` — `src/layer.rs:66`; `dump_to_file()` — `src/layer.rs:78` |
-| **Retention Dump** | A dump strategy that writes a timestamped snapshot file into a diagnostics directory, then deletes the oldest matching files beyond `max_files`. | `FlightRecorder::dump_with_retention()` — `src/layer.rs:134` |
-| **Diagnostics Directory** | A filesystem directory where timestamped snapshot files are written and pruned according to the retention policy. | `dir` parameter — `src/layer.rs:136` |
-| **Redaction** | Automatic replacement of sensitive field values with `[REDACTED]`. Field names matched: `token`, `password`, `secret`, `api_key`, `credential`, `passphrase`, `private_key`. Over-redaction is intentional. | `is_sensitive_field()` — `src/capture.rs:91` |
+| **Dump** | Serializing the ring-buffer contents to an external format — a JSON string, a file, a writer, or NDJSON lines. Compact by default; `_pretty` variants produce indented output. | `FlightRecorder::dump_to_json()` / `dump_to_file()` / `dump_to_writer()` — `src/layer.rs` |
+| **Retention Dump** | A dump strategy that writes a timestamped snapshot file into a diagnostics directory, then deletes the oldest matching files beyond `max_files` (0 = unlimited). | `FlightRecorder::dump_with_retention()` — `src/layer.rs` |
+| **Diagnostics Directory** | A filesystem directory where timestamped snapshot files are written and pruned according to the retention policy. | `dir` parameter of `dump_with_retention()` — `src/layer.rs` |
+| **NDJSON** | Newline-Delimited JSON — one compact JSON object per line. Streamable, appendable, and ingestible by log pipelines without a full-array parse. | `FlightRecorder::dump_to_json_lines()` / `dump_to_writer_lines()` — `src/layer.rs` |
+| **Gzip Dump** | A gzip-compressed snapshot file (5-10× smaller). Available behind the `gzip` feature. | `FlightRecorder::dump_to_file_gz()` / `dump_envelope_to_file_gz()` — `src/layer.rs` |
+| **Redaction** | Automatic replacement of sensitive field values with `[REDACTED]`. Field names matched (case-insensitive substring): `token`, `password`, `secret`, `api_key`/`apikey`, `credential`, `passphrase`, `private_key`, `authorization`, `auth`, `bearer`, `cookie`, `session_id`, `access_code`. Over-redaction is intentional. Applies to both event fields and span fields. | `is_sensitive_field()` — `src/capture.rs` |
+
+## Triggers
+
+| Term | Definition | Where used |
+|------|------------|------------|
+| **Trigger** | A predicate (`Send + Sync`) that decides whether the buffer should be dumped for a given event. Evaluated on every event on the hot path; must be cheap. Implementations record their `name()` as the dump's `trigger_reason`. | `Trigger` trait — `src/trigger.rs` |
+| **Level Trigger** | Fires when an event's severity is at or above a configured `Level`. "At or above" means more severe or equally severe. | `LevelTrigger` — `src/trigger.rs` |
+| **Once Trigger** | A decorator that wraps any `Trigger`; allows it to fire at most once until `reset()` re-arms it. The token is consumed in `should_dump` (before the dump), so a failed dump does not retry — preventing retry storms. | `OnceTrigger` — `src/trigger.rs` |
+| **Fire Dump** | The internal method that writes a snapshot envelope to the configured dump directory when a trigger fires. Synchronous in the calling thread; errors are logged (not propagated) so a disk-full never crashes the application. | `FlightRecorderLayer::fire_dump()` — `src/layer.rs` |
 
 ## Tracing Integration
 
 | Term | Definition | Where used |
 |------|------------|------------|
-| **Layer** (`FlightRecorderLayer`) | A `tracing_subscriber::Layer` that receives every event passing its per-layer filter and feeds each into a `FlightRecorder`. | `FlightRecorderLayer` — `src/layer.rs:234`; `impl Layer` — `src/layer.rs:252` |
-| **Per-Layer Filter** | A `tracing_subscriber` filter applied to an individual `Layer` so the recorder captures DEBUG/TRACE while the console `fmt` layer stays at INFO. A global filter would block verbose events before they reach the recorder. | Doc comment — `src/layer.rs:229`; Quick Start — `src/lib.rs:23` |
+| **Layer (`FlightRecorderLayer`)** | A `tracing_subscriber::Layer` that receives every event passing its per-layer filter and feeds each into a `FlightRecorder`. Implements `on_new_span`, `on_record` (span field capture), and `on_event` (event capture + trigger check). Requires `S: Subscriber + for<'lookup> LookupSpan<'lookup>`. | `FlightRecorderLayer` — `src/layer.rs`; `impl Layer` — `src/layer.rs` |
+| **Per-Layer Filter** | A `tracing_subscriber` filter applied to an individual `Layer` so the recorder captures DEBUG/TRACE while the console `fmt` layer stays at INFO. A global filter would block verbose events before they reach the recorder. **This is the #1 integration pitfall.** | Quick Start — `src/lib.rs`, `README.md`; Critical Gotcha — `AGENTS.md` |
+| **Span Field Capture** | The layer's `on_new_span`/`on_record` implementations store span fields as a `CapturedSpanFields` extension on span data (via `LookupSpan`). `on_event` then reads these extensions when building the span hierarchy. Updates use clone-on-write (`Arc::make_mut`) so already-captured events keep their snapshot. | `FlightRecorderLayer::on_new_span()` / `on_record()` — `src/layer.rs` |
 
 ## Optional Features
 
 | Term | Definition | Where used |
 |------|------------|------------|
-| **OpenAPI Schema** | Optional cargo feature (`openapi`) that derives `utoipa::ToSchema` on `CapturedEvent`, enabling automatic OpenAPI/JSON-schema generation. | `#[cfg_attr(feature = "openapi", ...)]` — `src/capture.rs:13` |
+| **OpenAPI Schema** | Optional cargo feature (`openapi`) that derives `utoipa::ToSchema` on `CapturedEvent`, `SpanContext`, and `FlightRecorderDump`. Uses `rc_schema` so `Arc` fields are schema-transparent. | `#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]` — `src/capture.rs` |
+| **Gzip Compression** | Optional cargo feature (`gzip`) enabling `dep:flate2` and the `dump_to_file_gz` / `dump_envelope_to_file_gz` methods. The `on_dump` callback reports the *compressed* byte count. | `#[cfg(feature = "gzip")]` methods — `src/layer.rs` |

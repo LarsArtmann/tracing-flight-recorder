@@ -104,21 +104,27 @@ pub enum DumpSource {
 }
 
 /// Payload delivered to an [`on_dump`](crate::FlightRecorder::with_on_dump)
-/// callback after a snapshot is persisted.
+/// callback after a snapshot is attempted.
 ///
 /// Lets the host wire the flight recorder into broader observability — emit a
 /// metric, ship the file to object storage, enqueue an audit entry — without
-/// polling. Delivered only for dumps that write to a destination (file writes
+/// polling. Delivered for dumps that write to a destination (file writes
 /// and retention dumps, including automatic trigger dumps); in-memory
 /// serialization methods (`dump_to_json`, `dump_to_writer`, …) do not fire the
 /// callback.
+///
+/// The `success` field distinguishes completed dumps from failed ones: when a
+/// trigger dump cannot be written (disk full, permission denied), the callback
+/// still fires with `success: false` and a human-readable `error` so the host
+/// can alert on the missed capture.
 #[derive(Debug, Clone)]
 pub struct DumpEvent {
     /// Where the snapshot was written, when the dump had a destination file.
+    /// `None` when the dump failed before a path could be resolved.
     pub path: Option<PathBuf>,
-    /// Number of bytes serialized and written.
+    /// Number of bytes serialized and written. `0` on failure.
     pub bytes_written: usize,
-    /// Wall-clock time spent serializing and writing the dump.
+    /// Wall-clock time spent attempting the dump.
     pub duration: Duration,
     /// Why the dump was taken. For a [`Trigger`](DumpSource::Trigger) dump this
     /// is the trigger's [`name`](crate::Trigger::name); for a
@@ -127,6 +133,14 @@ pub struct DumpEvent {
     pub trigger_reason: Option<String>,
     /// Whether the dump was automatic (trigger) or caller-requested.
     pub source: DumpSource,
+    /// Whether the dump completed successfully (`true`) or failed (`false`).
+    ///
+    /// Trigger dumps that fail (disk full, permission denied) fire the callback
+    /// with `success: false` so the host can alert on the missed capture —
+    /// a diagnostic tool that silently loses data is worse than no tool at all.
+    pub success: bool,
+    /// Human-readable error message when `success` is `false`.
+    pub error: Option<String>,
 }
 
 impl CapturedEvent {

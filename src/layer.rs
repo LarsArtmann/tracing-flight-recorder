@@ -249,6 +249,37 @@ impl FlightRecorder {
         serde_json::to_string_pretty(&self.dump_envelope(reason))
     }
 
+    /// Write the buffer as a [`FlightRecorderDump`] envelope (**compact** JSON) to any writer.
+    ///
+    /// Streams directly to the writer without buffering the full JSON string.
+    /// For indented output use [`dump_envelope_to_writer_pretty`](Self::dump_envelope_to_writer_pretty).
+    ///
+    /// # Errors
+    ///
+    /// Returns `io::Error` if serialization or writing fails.
+    pub fn dump_envelope_to_writer(
+        &self,
+        writer: &mut dyn std::io::Write,
+        reason: Option<&str>,
+    ) -> std::io::Result<()> {
+        let envelope = self.dump_envelope(reason);
+        serde_json::to_writer(writer, &envelope).map_err(std::io::Error::other)
+    }
+
+    /// Write the buffer as a [`FlightRecorderDump`] envelope (pretty-printed JSON) to any writer.
+    ///
+    /// # Errors
+    ///
+    /// Returns `io::Error` if serialization or writing fails.
+    pub fn dump_envelope_to_writer_pretty(
+        &self,
+        writer: &mut dyn std::io::Write,
+        reason: Option<&str>,
+    ) -> std::io::Result<()> {
+        let envelope = self.dump_envelope(reason);
+        serde_json::to_writer_pretty(writer, &envelope).map_err(std::io::Error::other)
+    }
+
     /// Write the buffer as a [`FlightRecorderDump`] envelope (**compact** JSON) to a file.
     ///
     /// Creates parent directories if they don't exist. For indented output use
@@ -343,6 +374,8 @@ impl FlightRecorder {
             duration,
             trigger_reason: reason.map(str::to_string),
             source,
+            success: true,
+            error: None,
         };
         self.report(&event);
         Ok(())
@@ -369,6 +402,8 @@ impl FlightRecorder {
             duration,
             trigger_reason: reason.map(str::to_string),
             source,
+            success: true,
+            error: None,
         };
         self.report(&event);
         Ok(())
@@ -619,6 +654,7 @@ pub struct FlightRecorderLayer {
 /// Built by [`FlightRecorderLayer::with_dump_on`]. When the trigger fires, the
 /// layer writes a [`FlightRecorderDump`] envelope to `dir` with `prefix` and
 /// keeps at most `max_files` snapshots (0 = unlimited).
+#[derive(Debug)]
 struct DumpConfig {
     trigger: Box<dyn Trigger>,
     dir: PathBuf,
@@ -694,11 +730,17 @@ impl FlightRecorderLayer {
 
     /// Write a snapshot envelope to the configured dump directory.
     ///
-    /// No-op when no dump policy is attached. Reports the dump to the
-    /// [`on_dump`](FlightRecorder::with_on_dump) callback with
-    /// [`DumpSource::Trigger`].
-    fn fire_dump(&self, reason: &str) -> std::io::Result<()> {
-        if let Some(cfg) = &self.dump_config {
+    /// No-op when no dump policy is attached. On success, the
+    /// [`on_dump`](FlightRecorder::with_on_dump) callback fires (via
+    /// `retention_write`) with [`DumpSource::Trigger`] and `success: true`.
+    /// On failure, the callback fires with `success: false` and a
+    /// human-readable error so the host can alert on the missed capture.
+    fn fire_dump(&self, reason: &str) {
+        let Some(cfg) = &self.dump_config else {
+            return;
+        };
+        let start = Instant::now();
+        let result = (|| -> std::io::Result<()> {
             let json = self
                 .recorder
                 .dump_envelope_to_json(Some(reason))
@@ -711,8 +753,29 @@ impl FlightRecorderLayer {
                 Some(reason),
                 DumpSource::Trigger,
             )?;
+            Ok(())
+        })();
+        if let Err(e) = result {
+            self.recorder.report(&DumpEvent {
+                path: None,
+                bytes_written: 0,
+                duration: start.elapsed(),
+                trigger_reason: Some(reason.to_string()),
+                source: DumpSource::Trigger,
+                success: false,
+                error: Some(e.to_string()),
+            });
         }
-        Ok(())
+    }
+}
+
+impl std::fmt::Debug for FlightRecorderLayer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FlightRecorderLayer")
+            .field("recorder", &self.recorder)
+            .field("capture_span_context", &self.capture_span_context)
+            .field("dump_config", &self.dump_config)
+            .finish()
     }
 }
 
@@ -773,9 +836,7 @@ where
         });
         self.recorder.push(captured);
         if let Some(reason) = reason {
-            // Best-effort: a failed trigger-dump is logged away, not propagated.
-            // Retention keeps the directory from growing without bound.
-            let _result = self.fire_dump(&reason);
+            self.fire_dump(&reason);
         }
     }
 }

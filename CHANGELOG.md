@@ -12,7 +12,12 @@ default JSON formatting of the dump methods.
 
 ### Added
 
-- **Observability hooks** — `DumpEvent` (path, `bytes_written`, `duration`, `trigger_reason`, `source`) and `DumpSource` (`Manual` / `Trigger`). Register a callback with `FlightRecorder::with_on_dump`; it fires after every dump that persists to a file (manual file/retention dumps **and** automatic trigger dumps), with accurate byte count and wall-clock duration. The callback is best-effort: a panicking observer is contained via `catch_unwind` and never destabilizes the recorder or trigger path (`src/layer.rs`, `src/capture.rs`)
+- **`DumpEvent.success` and `DumpEvent.error`** — the `on_dump` callback now receives `success: bool` and `error: Option<String>` fields. Trigger dumps that fail (disk full, permission denied) fire the callback with `success: false` and a human-readable error so the host can alert on the missed capture — a diagnostic tool that silently loses data is worse than no tool at all (`src/capture.rs`, `src/layer.rs`)
+- **`Debug` for `FlightRecorderLayer`** — operators can now `dbg!()` the layer to inspect trigger state, dump directory, and capture flag (`src/layer.rs`)
+- **`dump_envelope_to_writer` / `dump_envelope_to_writer_pretty`** — streams the envelope as compact or indented JSON to any `impl Write`, matching the array API's writer variants (`src/layer.rs`)
+- **`examples/compression.rs`** — runnable example demonstrating gzip-compressed dumps (`examples/`)
+- **`examples/observability.rs`** — runnable example demonstrating the `on_dump` observability hook (`examples/`)
+- **Observability hooks** — `DumpEvent` (path, `bytes_written`, `duration`, `trigger_reason`, `source`, `success`, `error`) and `DumpSource` (`Manual` / `Trigger`). Register a callback with `FlightRecorder::with_on_dump`; it fires after every dump that persists to a file (manual file/retention dumps **and** automatic trigger dumps), with accurate byte count and wall-clock duration. The callback is best-effort: a panicking observer is contained via `catch_unwind` and never destabilizes the recorder or trigger path (`src/layer.rs`, `src/capture.rs`)
 - **Gzip compression** — optional `gzip` feature (behind `dep:flate2`) adds `dump_to_file_gz` and `dump_envelope_to_file_gz`, writing snapshots 5-10× smaller. The `on_dump` callback reports the *compressed* byte count (`src/layer.rs`)
 - **Criterion benchmarks** — `benches/push_dump.rs` covers the `on_event` capture path, `snapshot`, and `dump_to_json` at varying buffer sizes. Run with `cargo bench`
 - **Allocation-count profiling** — an `#[ignore]`d test backed by a counting global allocator characterizes the `on_event` hot path at ~9 allocations/event. Run with `cargo test profile_allocations -- --ignored --nocapture`
@@ -21,8 +26,15 @@ default JSON formatting of the dump methods.
 
 ### Changed
 
+- **BREAKING: `Trigger` trait now requires `std::fmt::Debug`** — the supertrait bound was added to enable `Debug` for `FlightRecorderLayer`. Built-in triggers (`LevelTrigger`, `OnceTrigger`) derive `Debug`. Custom trigger implementations must add `#[derive(Debug)]` or a manual `Debug` impl (`src/trigger.rs`)
+- **BREAKING: `DumpEvent` has two new required fields** — `success: bool` and `error: Option<String>`. Code that constructs `DumpEvent` manually must add these fields (`src/capture.rs`)
 - **BREAKING: dump methods now default to compact JSON.** `dump_to_json`, `dump_to_writer`, `dump_to_file`, `dump_envelope_to_json`, and `dump_envelope_to_file` emit compact output instead of pretty-printed. New `_pretty` companions (`dump_to_json_pretty`, `dump_to_writer_pretty`, `dump_to_file_pretty`, `dump_envelope_to_json_pretty`, `dump_envelope_to_file_pretty`) provide indented output for human reading. Compact is the better default because snapshots are frequently persisted automatically (trigger dumps, retention pruning) where size matters. Code that *parses* the output is unaffected — only whitespace differs
 - **Retention dumps are compact** — `dump_with_retention` and `dump_with_retention_envelope` now write compact JSON (consistent with the new default)
+
+### Fixed
+
+- **`OnceTrigger` race condition** — under concurrent error bursts, the non-atomic `load` → `store` pattern allowed multiple threads to pass the check before any `store` landed, producing multiple dumps despite the "once" guarantee. Now uses `compare_exchange(false, true, AcqRel, Acquire)` for true atomic test-and-set: exactly one dump is produced regardless of thread scheduling (`src/trigger.rs`)
+- **`fire_dump` silently swallowed errors** — `on_event` did `let _result = self.fire_dump(&reason)`, discarding I/O errors from trigger dumps. If the dump failed (disk full, permissions), the operator thought the incident was captured but it wasn't. The `OnceTrigger` made it worse: token consumed, dump failed, no retry. Now `fire_dump` fires the `on_dump` callback with `success: false` and a human-readable error (`src/layer.rs`)
 
 ## [0.2.0] - 2026-08-11
 

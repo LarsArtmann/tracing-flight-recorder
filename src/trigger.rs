@@ -32,7 +32,7 @@ use tracing::Level;
 ///
 /// Built-in implementations: [`LevelTrigger`] (fires at/above a severity) and
 /// [`OnceTrigger`] (fires at most once until reset).
-pub trait Trigger: Send + Sync {
+pub trait Trigger: Send + Sync + std::fmt::Debug {
     /// Returns `true` if the buffer should be dumped for this event.
     fn should_dump(&self, event: &CapturedEvent) -> bool;
 
@@ -63,6 +63,7 @@ fn level_rank_str(level: &str) -> u8 {
 /// The canonical trigger: "dump the buffer the moment something goes ERROR."
 /// "At or above" means *more severe or equally severe*, so
 /// `LevelTrigger::new(Level::WARN)` fires on both `WARN` and `ERROR`.
+#[derive(Debug)]
 pub struct LevelTrigger {
     rank: u8,
     name: String,
@@ -108,7 +109,10 @@ impl Trigger for LevelTrigger {
 ///
 /// The once-token is consumed as soon as the inner trigger fires — even if the
 /// subsequent dump fails (e.g. disk full). This prevents retry storms; call
-/// `reset()` to re-arm after resolving the failure.
+/// `reset()` to re-arm after resolving the failure. The token claim is atomic
+/// (`compare_exchange`), so under concurrent error bursts exactly one dump is
+/// produced regardless of thread scheduling.
+#[derive(Debug)]
 pub struct OnceTrigger<T> {
     inner: T,
     fired: AtomicBool,
@@ -138,17 +142,19 @@ impl<T: Trigger> OnceTrigger<T> {
 
 impl<T: Trigger> Trigger for OnceTrigger<T> {
     fn should_dump(&self, event: &CapturedEvent) -> bool {
+        // Fast path: already fired — skip the inner trigger evaluation entirely.
         if self.fired.load(Ordering::Acquire) {
             return false;
         }
-        if self.inner.should_dump(event) {
-            // Mark fired even if a concurrent thread races here; at worst two
-            // dumps are produced, which retention cleanup tolerates.
-            self.fired.store(true, Ordering::Release);
-            true
-        } else {
-            false
+        if !self.inner.should_dump(event) {
+            return false;
         }
+        // Atomically claim the once-token: false → true in a single atomic
+        // op. If a concurrent thread already won the race, this returns
+        // Err and we return false — exactly one dump is produced.
+        self.fired
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
     }
 
     fn name(&self) -> &str {

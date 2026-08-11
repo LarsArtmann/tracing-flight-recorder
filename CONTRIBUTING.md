@@ -55,9 +55,13 @@ FlightRecorder::push()
 Trigger check → fire_dump() (if attached)   ← automatic snapshot on failure
     │
     ▼
-FlightRecorder::snapshot() / dump_to_json() / dump_to_json_lines() /
-dump_to_writer() / dump_to_writer_lines() / dump_to_file() / dump_with_retention() /
-dump_envelope_to_file() / dump_with_retention_envelope()
+FlightRecorder::snapshot() / dump_to_json() / dump_to_json_pretty() /
+dump_to_json_lines() / dump_to_writer() / dump_to_writer_pretty() /
+dump_to_writer_lines() / dump_to_file() / dump_to_file_pretty() /
+dump_with_retention() / dump_envelope() / dump_envelope_to_json() /
+dump_envelope_to_json_pretty() / dump_envelope_to_file() /
+dump_envelope_to_file_pretty() / dump_with_retention_envelope() /
+dump_to_file_gz() / dump_envelope_to_file_gz()
 ```
 
 ## Pull Request Checklist

@@ -24,7 +24,7 @@ Always run clippy with `--all-features` so the `openapi`- and `gzip`-gated code 
 - **`release.toml`** — `cargo-release` config. `push = false` (don't auto-push), `publish = true`. Run `cargo release version <x.y.z> --execute` to cut a release.
 - **`.github/workflows/publish.yml`** — automated crates.io publishing on `v*.*.*` tag push. Verifies tag matches `Cargo.toml` version, idempotency guard against re-publish. `CARGO_REGISTRY_TOKEN` secret is configured. Pushing a tag publishes automatically.
 - **`deny.toml`** — `cargo-deny` config (advisories, licenses, bans, sources). Run with `cargo deny check`.
-- **`[package.metadata.docs.rs]`** in `Cargo.toml` — builds docs.rs with the `openapi` feature so `ToSchema` appears on the published docs page.
+- **`[package.metadata.docs.rs]`** in `Cargo.toml` — builds docs.rs with the `openapi` **and** `gzip` features so both `ToSchema` derives and gzip-gated methods appear on the published docs page.
 - **GitHub repo**: `git@github.com:LarsArtmann/tracing-flight-recorder.git` (public). Topics: tracing, flight-recorder, diagnostics, ring-buffer, debugging, rust, tracing-subscriber.
 
 ## Strict Clippy — Read Before Writing Any Code
@@ -81,6 +81,22 @@ Five source files, all under `src/`:
 
 There is a dedicated regression test guarding this: `flight_recorder_sees_events_blocked_by_other_layer_filter` in `layer_tests.rs`. When changing the layer, ensure that test still passes.
 
+## Critical Gotcha: `with_dump_on` Builder Ordering
+
+**`with_dump_on` must be called BEFORE `with_filter`.**
+
+`with_filter` (from the `tracing_subscriber::Layer` trait) wraps the receiver in a `Layered<F, Self>` type — it is no longer a `FlightRecorderLayer` and does not have `with_dump_on`. This is a compile error, not a runtime bug, but it confuses new users who chain methods left-to-right.
+
+**Correct order:**
+
+```rust,ignore
+FlightRecorderLayer::new(recorder.clone())
+    .with_dump_on(OnceTrigger::new(LevelTrigger::error()), "./diagnostics", "incident", 10)
+    .with_filter(fr_filter)  // wraps into Layered<EnvFilter, FlightRecorderLayer>
+```
+
+The README's trigger example includes a comment noting this ordering; keep it.
+
 ## Testing Approach
 
 - **End-to-end tests install a real subscriber** via `tracing::subscriber::with_default(subscriber, || { ... })` rather than mocking — emit real `tracing::debug!`/`info!`/`warn!` events and assert they land in the recorder. Prefer this style for new layer/pipeline tests.
@@ -89,9 +105,9 @@ There is a dedicated regression test guarding this: `flight_recorder_sees_events
 - **Property tests** (`proptest`) verify the eviction invariant across random capacity/event-count combinations.
 - **Concurrency tests** stress the `Arc<Mutex<VecDeque>>` under multi-thread contention (8 threads × 100 events).
 - **Memory footprint test** measures deep bytes (every `String`/`Vec` capacity, not just `len()`) of a 1000-event buffer (~385 KB) and asserts it stays within the README-claimed ~200-500 KB range.
-- **Trigger system**: `src/trigger.rs` defines the `Trigger` trait + `LevelTrigger`/`OnceTrigger`; `FlightRecorderLayer::with_dump_on(trigger, dir, prefix, max_files)` attaches automatic snapshot-on-failure. The dump fires synchronously in `on_event` (best-effort, errors discarded) and writes a `FlightRecorderDump` envelope with the trigger's `name()` as `trigger_reason`. The `OnceTrigger` consumes its token in `should_dump` (before the dump), so a failed dump does not retry — document this to users.
+- **Trigger system**: `src/trigger.rs` defines the `Trigger` trait (`Send + Sync + Debug`, `should_dump` + `name`) + `LevelTrigger`/`OnceTrigger`; `FlightRecorderLayer::with_dump_on(trigger, dir, prefix, max_files)` attaches automatic snapshot-on-failure. The dump fires synchronously in `on_event` and writes a `FlightRecorderDump` envelope with the trigger's `name()` as `trigger_reason`. The `OnceTrigger` uses `compare_exchange` for true atomic test-and-set (exactly one dump under concurrent bursts) and consumes its token in `should_dump` (before the dump), so a failed dump does not retry — document this to users. Failed trigger dumps fire the `on_dump` callback with `success: false` and an error message instead of being silently dropped.
 - **Collision guard** logic is extracted into `resolve_collision_path` (`layer.rs`) with an injectable `COLLISION_LIMIT` (9999) so the upper bound is unit-tested without creating thousands of files. Tests cover: same-second non-overwrite, limit-exceeded error, first-free-slot, primary-when-free.
 - **Edge-case coverage** includes 12-deep nested spans, `i128`/`u128` min/max field values, `dump_to_file` into a read-only directory, and a proptest that cross-validates the zero-alloc redaction matcher against a reference implementation.
 - **Benchmarks** (`benches/push_dump.rs`, criterion, `harness = false`) measure the `on_event` capture path, `snapshot`, and `dump_to_json` at varying buffer sizes. Run `cargo bench`; seed buffers via the public layer (since `push` is `pub(crate)`).
 - **Allocation profiling**: `layer_tests.rs` defines a counting `#[global_allocator]` and an `#[ignore]`d test that snapshots the per-event allocation count on the `on_event` hot path (~9 allocs/event). `#[ignore]`d because the global counter is perturbed by parallel test execution — run on demand with `--ignored --nocapture`.
-- **Observability hooks** (`on_dump`) are tested for both `DumpSource::Manual` (file dump) and `DumpSource::Trigger` (auto dump), plus a test asserting a panicking callback is contained (`catch_unwind`) and the dump still lands.
+- **Observability hooks** (`on_dump`) are tested for `DumpSource::Manual` (file dump, retention dump, envelope file dump), `DumpSource::Trigger` (auto dump), failure reporting (`success: false` on read-only dir), in-memory dumps (negative test — callback NOT fired), plus a test asserting a panicking callback is contained (`catch_unwind`) and the dump still lands.

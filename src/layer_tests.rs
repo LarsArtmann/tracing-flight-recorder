@@ -1640,6 +1640,87 @@ fn envelope_pretty_variant_indents_and_round_trips() {
     assert_eq!(parsed.events[0].message, "env-pretty");
 }
 
+#[test]
+fn dump_to_writer_pretty_produces_valid_indented_json() {
+    let recorder = FlightRecorder::new(100);
+    recorder.push(make_event("writer-pretty"));
+    let mut buf = Vec::new();
+    recorder.dump_to_writer_pretty(&mut buf).unwrap();
+    let s = String::from_utf8(buf).unwrap();
+    assert!(s.contains('\n'), "writer pretty output must be indented");
+    let parsed: serde_json::Value = serde_json::from_str(&s).unwrap();
+    assert_eq!(parsed.as_array().map_or(0, Vec::len), 1);
+}
+
+#[test]
+fn dump_to_file_pretty_writes_valid_indented_json() {
+    let recorder = FlightRecorder::new(100);
+    recorder.push(make_event("file-pretty"));
+    let dir = tempfile_dir();
+    let path = dir.join("pretty.json");
+    recorder.dump_to_file_pretty(&path).unwrap();
+    let s = std::fs::read_to_string(&path).unwrap();
+    assert!(s.contains('\n'), "file pretty output must be indented");
+    let parsed: serde_json::Value = serde_json::from_str(&s).unwrap();
+    assert_eq!(parsed.as_array().map_or(0, Vec::len), 1);
+}
+
+#[test]
+fn dump_envelope_to_file_pretty_writes_valid_indented_envelope() {
+    let recorder = FlightRecorder::new(100);
+    recorder.push(make_event("envelope-file-pretty"));
+    let dir = tempfile_dir();
+    let path = dir.join("envelope-pretty.json");
+    recorder
+        .dump_envelope_to_file_pretty(&path, Some("test-reason"))
+        .unwrap();
+    let s = std::fs::read_to_string(&path).unwrap();
+    assert!(s.contains('\n'), "envelope file pretty must be indented");
+    let parsed: FlightRecorderDump = serde_json::from_str(&s).unwrap();
+    assert_eq!(parsed.event_count, 1);
+    assert_eq!(parsed.events[0].message, "envelope-file-pretty");
+    assert_eq!(
+        parsed.trigger_reason.as_ref().map(|c| c.as_ref()),
+        Some("test-reason")
+    );
+}
+
+#[test]
+fn dump_envelope_to_writer_produces_valid_envelope() {
+    let recorder = FlightRecorder::new(100);
+    recorder.push(make_event("envelope-writer"));
+    let mut buf = Vec::new();
+    recorder
+        .dump_envelope_to_writer(&mut buf, Some("writer-test"))
+        .unwrap();
+    let s = String::from_utf8(buf).unwrap();
+    assert!(
+        !s.contains('\n'),
+        "compact envelope writer must be single-line"
+    );
+    let parsed: FlightRecorderDump = serde_json::from_str(&s).unwrap();
+    assert_eq!(parsed.event_count, 1);
+    assert_eq!(parsed.events[0].message, "envelope-writer");
+    assert_eq!(
+        parsed.trigger_reason.as_ref().map(|c| c.as_ref()),
+        Some("writer-test")
+    );
+}
+
+#[test]
+fn dump_envelope_to_writer_pretty_indents() {
+    let recorder = FlightRecorder::new(100);
+    recorder.push(make_event("envelope-writer-pretty"));
+    let mut buf = Vec::new();
+    recorder
+        .dump_envelope_to_writer_pretty(&mut buf, None)
+        .unwrap();
+    let s = String::from_utf8(buf).unwrap();
+    assert!(s.contains('\n'), "pretty envelope writer must be indented");
+    let parsed: FlightRecorderDump = serde_json::from_str(&s).unwrap();
+    assert_eq!(parsed.event_count, 1);
+}
+
 // ── Observability hooks (on_dump) ────────────────────────────────────
 
 #[test]
@@ -1668,6 +1749,74 @@ fn on_dump_fires_for_manual_file_dump() {
     assert!(
         ev.trigger_reason.is_none(),
         "bare dump_to_file carries no reason"
+    );
+}
+
+#[test]
+fn on_dump_fires_for_retention_dump() {
+    let collected: std::sync::Arc<std::sync::Mutex<Vec<DumpEvent>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let hook = std::sync::Arc::clone(&collected);
+    let recorder =
+        FlightRecorder::new(100).with_on_dump(move |ev| hook.lock().unwrap().push(ev.clone()));
+    recorder.push(make_event("retention-hook"));
+
+    let dir = tempfile_dir();
+    let path = recorder
+        .dump_with_retention(&dir, "snap", 5)
+        .expect("retention dump succeeds");
+
+    let events = collected.lock().unwrap();
+    assert_eq!(events.len(), 1, "retention dump fires hook once");
+    assert_eq!(events[0].source, DumpSource::Manual);
+    assert_eq!(events[0].path.as_deref(), Some(path.as_path()));
+    assert!(events[0].success);
+}
+
+#[test]
+fn on_dump_fires_for_envelope_file_dump() {
+    let collected: std::sync::Arc<std::sync::Mutex<Vec<DumpEvent>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let hook = std::sync::Arc::clone(&collected);
+    let recorder =
+        FlightRecorder::new(100).with_on_dump(move |ev| hook.lock().unwrap().push(ev.clone()));
+    recorder.push(make_event("envelope-hook"));
+
+    let dir = tempfile_dir();
+    let path = dir.join("envelope.json");
+    recorder
+        .dump_envelope_to_file(&path, Some("manual-envelope"))
+        .unwrap();
+
+    let events = collected.lock().unwrap();
+    assert_eq!(events.len(), 1, "envelope file dump fires hook once");
+    assert_eq!(events[0].source, DumpSource::Manual);
+    assert_eq!(events[0].path.as_deref(), Some(path.as_path()));
+    assert_eq!(events[0].trigger_reason.as_deref(), Some("manual-envelope"));
+    assert!(events[0].success);
+}
+
+#[test]
+fn on_dump_not_fired_for_in_memory_dumps() {
+    let collected: std::sync::Arc<std::sync::Mutex<Vec<DumpEvent>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let hook = std::sync::Arc::clone(&collected);
+    let recorder =
+        FlightRecorder::new(100).with_on_dump(move |ev| hook.lock().unwrap().push(ev.clone()));
+    recorder.push(make_event("in-memory"));
+
+    // None of these write to a file, so none should fire the callback.
+    let _ = recorder.dump_to_json().unwrap();
+    let _ = recorder.dump_to_json_pretty().unwrap();
+    let _ = recorder.dump_envelope_to_json(None).unwrap();
+    let mut buf = Vec::new();
+    recorder.dump_to_writer(&mut buf).unwrap();
+    let _ = recorder.dump_to_json_lines().unwrap();
+
+    let events = collected.lock().unwrap();
+    assert!(
+        events.is_empty(),
+        "in-memory dumps must NOT fire on_dump callback"
     );
 }
 
@@ -1743,6 +1892,86 @@ fn on_dump_callback_panic_is_contained() {
         count_files_matching(&dir, "boom") >= 1,
         "the dump file must still be written despite the hook panic"
     );
+}
+
+#[test]
+fn on_dump_fires_with_success_false_when_trigger_dump_fails() {
+    use std::sync::Mutex;
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let captured: std::sync::Arc<Mutex<Vec<DumpEvent>>> = std::sync::Arc::default();
+    let captured_clone = std::sync::Arc::clone(&captured);
+    let recorder = FlightRecorder::new(100).with_on_dump(move |ev| {
+        captured_clone.lock().unwrap().push(ev.clone());
+    });
+
+    let dir = tempfile_dir();
+    let layer = FlightRecorderLayer::new(recorder.clone()).with_dump_on(
+        crate::LevelTrigger::error(),
+        dir.clone(),
+        "fail-test",
+        10,
+    );
+    let subscriber = tracing_subscriber::registry().with(layer);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // Make the dump dir read-only so create_dir_all or the file write fails.
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500))
+            .expect("set dir read-only");
+
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::error!("triggering a dump that will fail");
+        });
+
+        let events = captured.lock().unwrap();
+        assert!(
+            events.iter().any(|e| !e.success && e.error.is_some()),
+            "on_dump must fire with success=false and an error message when the dump fails"
+        );
+
+        // Restore writability so the temp dir can be cleaned up.
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+            .expect("restore dir writability");
+    }
+}
+
+// ── Debug impls ──────────────────────────────────────────────────────
+
+#[test]
+fn flight_recorder_layer_debug_shows_key_fields() {
+    let recorder = FlightRecorder::new(500);
+    let layer = FlightRecorderLayer::new(recorder).with_dump_on(
+        crate::LevelTrigger::error(),
+        "/tmp/diag",
+        "incident",
+        10,
+    );
+    let s = format!("{layer:?}");
+    assert!(s.contains("FlightRecorderLayer"), "struct name");
+    assert!(s.contains("capture_span_context"), "capture flag");
+    assert!(s.contains("DumpConfig"), "dump config present");
+    assert!(s.contains("incident"), "prefix in config");
+}
+
+#[test]
+fn flight_recorder_layer_debug_without_dump_config() {
+    let recorder = FlightRecorder::new(100);
+    let layer = FlightRecorderLayer::new(recorder);
+    let s = format!("{layer:?}");
+    assert!(s.contains("FlightRecorderLayer"));
+    assert!(s.contains("dump_config: None"));
+}
+
+#[test]
+fn trigger_implements_debug() {
+    let level = crate::LevelTrigger::error();
+    assert!(format!("{level:?}").contains("LevelTrigger"));
+
+    let once = crate::OnceTrigger::new(crate::LevelTrigger::error());
+    assert!(format!("{once:?}").contains("OnceTrigger"));
 }
 
 // ── gzip compression (gzip feature) ──────────────────────────────────
