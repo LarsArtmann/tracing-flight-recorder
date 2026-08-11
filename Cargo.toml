@@ -72,3 +72,10 @@ criterion = "0.5"
 [[bench]]
 name = "push_dump"
 harness = false
+
+# The compression example calls `dump_to_file_gz` / `dump_envelope_to_file_gz`,
+# which are only available under the `gzip` feature. Gate it so `cargo
+# build --examples` (without `--all-features`) doesn't fail to compile.
+[[example]]
+name = "compression"
+required-features = ["gzip"]
