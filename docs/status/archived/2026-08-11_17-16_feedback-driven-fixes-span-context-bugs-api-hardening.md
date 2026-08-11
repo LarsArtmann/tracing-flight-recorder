@@ -459,3 +459,22 @@ I made it always-on with no configuration. The feedback flagged this as a decisi
 ### 3. Should I fix the Go project's documentation bugs (options.go:121, FEATURES.md:56) in this session?
 
 They're real false claims in a different repo. The feedback documented them but the Go project wasn't the review target. I could fix them in a minute, but I don't know if you want me touching the Go repo without being asked.
+
+---
+
+## Resolution (2026-08-11)
+
+All fixes shipped in v0.2.0. Breaking changes versioned. Open items tracked.
+
+| Finding | Resolution | Commit |
+|---------|-----------|--------|
+| Breaking changes not versioned | Version bumped to 0.2.0 (4 BREAKING changes documented in CHANGELOG) | `7434a27` |
+| `level_to_string` still allocates | Changed to `Cow<'static, str>` — zero heap alloc for level | `7434a27` |
+| `[REDACTED]` constant not extracted | Extracted to `const REDACTED` + `record_common(&str)` signature | `7434a27` |
+| Span context: no example | `examples/span_context.rs` added | `7434a27` |
+| Span context: no opt-out | `with_span_capture(bool)` added (session 10) | `b7637fb` |
+| Span context: per-event deep copy | `Arc<Vec>` sharing added (session 10) | `b7637fb` |
+| No CHANGELOG/FEATURES/ROADMAP/TODO_LIST updates | All updated in session 9 | `7434a27` |
+| Proptest doesn't cover capacity=0 | Range extended to `0..=500` (session 9) | `7434a27` |
+| Memory footprint test undercounts | Fixed with `deep_size_of_captured_event` (session 10) | `b7637fb` |
+| All 50 "next things" brainstorm | Items picked up by sessions 9–11. Remaining open items in `TODO_LIST.md`. | — |

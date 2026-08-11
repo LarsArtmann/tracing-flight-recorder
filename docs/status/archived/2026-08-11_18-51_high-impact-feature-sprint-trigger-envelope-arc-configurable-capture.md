@@ -272,3 +272,25 @@ All Medium/Low/Cross-Project items remain untouched:
 2. **The crate is at 0.2.0 with 4 BREAKING changes now (new required `spans` field, tightened `LookupSpan` bound, `Cow<'static, str>` level, `Arc<Vec>` span fields). Is that acceptable for a single 0.1.x → 0.2.0 jump, or should I split into 0.2.0 (already-committed span/redaction work) + 0.3.0 (trigger/envelope/Arc work from this session)?**
 
 3. **Should the trigger dump be synchronous or fire-and-forget-async by default?** Synchronous guarantees the dump completes before a crash kills the process (safer for diagnostics). Async avoids stalling the request thread but risks losing the dump if the process exits immediately. The current implementation is synchronous with no async option.
+
+---
+
+## Resolution (2026-08-11)
+
+All 5 High Impact tasks shipped. Some P0 correctness items remain open in `TODO_LIST.md`.
+
+| Finding | Resolution | Commit / Status |
+|---------|-----------|-----------------|
+| Configurable span capture | ~~TODO~~ done — `with_span_capture(bool)` | `b7637fb` |
+| `Arc<Vec>` span field sharing | ~~TODO~~ done — serde `rc` + utoipa `rc_schema` | `b7637fb` |
+| Trigger system + once-semantics | ~~TODO~~ done — `Trigger`/`LevelTrigger`/`OnceTrigger` | `b7637fb` |
+| Dump metadata envelope | ~~TODO~~ done — `FlightRecorderDump` | `b7637fb` |
+| Memory footprint test accuracy | ~~TODO~~ done — `deep_size_of_captured_event` | `b7637fb` |
+| Silent dump error swallowing (d.2) | **Still open** — `let _result = self.fire_dump(…)` at `src/layer.rs:778`. Tracked in `TODO_LIST.md` High Impact | — |
+| `OnceTrigger` race condition (d.3) | **Still open** — non-atomic load-check-store. Tracked in `TODO_LIST.md` High Impact | — |
+| Doctest count wrong (6 vs 8) | ~~Fixed~~ corrected in session 11 (now 10 doctests) | `34ab131` |
+| `on_dump` callback (missing) | ~~Done~~ shipped in session 11 (`DumpEvent`/`DumpSource`) | `34ab131` |
+| Compact-default JSON | ~~Done~~ shipped in session 11 (BREAKING → 0.3.0) | `34ab131` |
+| No `Debug` for `FlightRecorderLayer` | **Still open** — tracked in `TODO_LIST.md` Medium Impact | — |
+| `dump_envelope_to_writer` missing | **Still open** — tracked in `TODO_LIST.md` Medium Impact | — |
+| All 50 "next things" brainstorm | Open items tracked in `TODO_LIST.md`. Long-term items in `ROADMAP.md`. | — |

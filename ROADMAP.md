@@ -27,10 +27,10 @@ benchmarks yet.
 
 Raw ideas:
 
-- Evaluate `parking_lot::Mutex` or a lock-free ring buffer (e.g. `crossbeam-queue`)
-- Pre-allocated, reusable field buffers (`SmallVec` for <8 fields) — see `TODO_LIST.md` for why this is currently rejected
+- Evaluate a lock-free ring buffer (e.g. `crossbeam-queue`)
 - Zero-copy snapshot handle (iterator over the buffer) instead of cloning into a `Vec`
-- Optional async channel + background writer so `on_event` never serializes
+- Pluggable compression trait abstracting gzip so zstd/lz4 can be added without API churn
+- Thread-local event recycling pool
 
 ### 3. Output formats
 
@@ -46,26 +46,24 @@ Raw ideas:
 ### 4. Framework ergonomics
 
 Span context capture is configurable (`with_span_capture`). The trigger system
-provides automatic snapshot-on-failure. Manual `dump_to_file` on error still
-requires the caller to wire every failure path — explore deeper integrations.
+provides automatic snapshot-on-failure. `on_dump` hooks fire on every
+file-writing dump. Remaining ideas for deeper integrations and ergonomics:
 
 Raw ideas:
 
 - `tower` middleware that dumps the buffer on `Response` error status
 - `axum` extractor / `on_response` hook for automatic incident capture
 - Panic-hook integration that dumps before the process exits
-- Async/non-blocking capture: background dump thread, drain on shutdown
-- `FlightRecorderBuilder`: capacity, span capture toggle, redaction patterns, output format
-- `parking_lot::Mutex` for reduced lock overhead
-- `Arc<CapturedEvent>` in buffer for cheap snapshot clones
-- Pre-allocated, reusable field buffers to avoid per-event allocation
+- `fr_on_error!` macro helper for ergonomic manual triggers
+- Human-readable pretty-text dump for incident chat paste
 
 ### 5. Crates.io publication
 
-Published and automated. v0.1.1 is live on
+v0.1.1 is live on
 [crates.io](https://crates.io/crates/tracing-flight-recorder) and
 [docs.rs](https://docs.rs/tracing-flight-recorder) (built with the `openapi`
-feature). Pushing a `v*.*.*` tag triggers
+feature). v0.2.0 + v0.3.0 changes are committed on `master` but not yet tagged
+or published (see `TODO_LIST.md`). Pushing a `v*.*.*` tag triggers
 [`publish.yml`](https://github.com/LarsArtmann/tracing-flight-recorder/blob/master/.github/workflows/publish.yml)
 which publishes automatically via the `CARGO_REGISTRY_TOKEN` secret. See
 [`docs/RELEASE.md`](RELEASE.md) for the full release runbook.
@@ -88,10 +86,8 @@ Things we are deliberately NOT pursuing and why:
   ephemeral and bounded. Long-term retention belongs in a real log collector.
 - **GUI viewer:** Snapshots are JSON files for external tooling; a built-in
   viewer would broaden scope beyond this crate.
-- **Configurable span context capture:** ~~Span capture is always-on.~~ Now
-  configurable via `FlightRecorderLayer::with_span_capture`. Remaining gap: a
-  full `FlightRecorderBuilder` unifying capacity, span capture, redaction
-  patterns, and output format.
+- **Configurable span context capture:** Span capture is configurable via
+  `FlightRecorderLayer::with_span_capture`.
 - **`no_std` / embedded support:** Investigated and rejected short-term. The
   crate depends on `chrono` (wall-clock timestamps), `std::sync::Mutex`
   (shared ring buffer), and `std::fs` (file/retention dumps). A `no_std` port

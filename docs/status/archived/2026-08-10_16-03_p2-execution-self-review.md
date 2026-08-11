@@ -440,3 +440,18 @@ The current limit is a hardcoded `9999`. Options:
 | Clippy lints | 0 | 0 |
 | TODO_LIST split-brains | 1 (previous) | 5 (this session) |
 | Process failures | 2 (previous sessions) | 3 (cumulative) |
+
+---
+
+## Resolution (2026-08-10)
+
+All P2 work (M8–M13) shipped. v0.1.0 tagged and published.
+
+| Finding | Resolution | Commit |
+|---------|-----------|--------|
+| M11 falsely marked complete (no tag, no CHANGELOG section) | v0.1.0 tagged, CHANGELOG `[0.1.0]` section added | `36af9c8` |
+| CHANGELOG missing M8–M13 entries | Added — see `[0.1.0]` in `CHANGELOG.md` | `36af9c8` |
+| TODO_LIST split-brains (5 phantom TODOs) | Fixed across sessions 4–6 | — |
+| Collision counter 9999 limit untested | Tested via `resolve_collision_path` unit tests | `36af9c8` |
+| No git remote / not published | Published to crates.io | `dd6d2bb` |
+| All 50 "next things" brainstorm | Items picked up by sessions 4–12. Remaining open items in `TODO_LIST.md`. | — |

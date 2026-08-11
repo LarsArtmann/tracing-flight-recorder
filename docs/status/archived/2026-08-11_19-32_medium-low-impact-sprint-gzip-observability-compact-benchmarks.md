@@ -244,3 +244,26 @@ cargo build --all-features --examples → clean
 cargo bench --bench push_dump -- --quick → all benchmarks run
 cargo test profile_allocations -- --ignored --nocapture → ~9 allocs/event
 ```
+
+---
+
+## Resolution (2026-08-11)
+
+All Medium/Low Impact features shipped. Some test/feature gaps remain open in `TODO_LIST.md`.
+
+| Finding | Resolution | Commit / Status |
+|---------|-----------|-----------------|
+| Gzip compression | ~~TODO~~ done — `gzip` feature, `dump_to_file_gz`/`dump_envelope_to_file_gz` | `34ab131` |
+| Observability hooks | ~~TODO~~ done — `on_dump` callback, `DumpEvent`/`DumpSource` | `34ab131` |
+| Compact-by-default JSON | ~~TODO~~ done — BREAKING, `_pretty` companions added | `34ab131` |
+| Criterion benchmarks | ~~TODO~~ done — `benches/push_dump.rs` | `34ab131` |
+| Allocation profiling | ~~TODO~~ done — counting allocator, ~9 allocs/event | `34ab131` |
+| Edge-case tests | ~~TODO~~ done — nested spans, i128/u128, read-only dir | `34ab131` |
+| Redaction fuzz test | ~~TODO~~ done — proptest 512 cases | `34ab131` |
+| on_dump untested for retention/envelope | **Still open** — tracked in `TODO_LIST.md` Medium Impact | — |
+| Pretty-variant test gaps | **Still open** — tracked in `TODO_LIST.md` Medium Impact | — |
+| No gzip/observability examples | **Still open** — tracked in `TODO_LIST.md` Medium Impact | — |
+| No trigger-path gzip | **Still open** — tracked in `TODO_LIST.md` Low Impact | — |
+| `FlightRecorderBuilder` | **Still open** — tracked in `TODO_LIST.md` Low Impact | — |
+| v0.2.0 + v0.3.0 not tagged | **Still open** — tracked in `TODO_LIST.md` Release | — |
+| All 50 "next things" brainstorm | Open items tracked in `TODO_LIST.md`. Long-term items in `ROADMAP.md`. | — |

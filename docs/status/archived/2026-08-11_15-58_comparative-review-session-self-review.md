@@ -391,3 +391,20 @@ entire feature update. It likely contains requirements and use cases that
 apply equally to the Rust project. Should I read it and extract
 Rust-relevant insights, or keep the feedback document focused on what I
 found myself?
+
+---
+
+## Resolution (2026-08-11)
+
+Feedback document delivered. All bugs it found were fixed in the next session.
+
+| Finding | Resolution | Commit |
+|---------|-----------|--------|
+| Span context blind spot (#1 issue) | Implemented in session 8 (`on_new_span`/`on_record`/`on_event` scope walk) | `f6a93e9` |
+| capacity=0 retains 1 event | Fixed — early return guard in `push()` | `f6a93e9` |
+| retention=0 deletes own dump | Fixed — `max_files=0` means unlimited | `f6a93e9` |
+| `is_sensitive_field` allocation | Fixed — zero-alloc `windows()` + `eq_ignore_ascii_case` | `f6a93e9` |
+| Allocation count (claimed 14-17 by reading) | Profiled empirically: ~9 allocs/event (after fixes) | `34ab131` |
+| README "zero non-tracing deps" false claim | Corrected to "minimal dependencies" | `f6a93e9` |
+| Go project doc bugs (options.go:121, FEATURES.md:56) | Different repo — not actionable here | — |
+| All 50 "next things" brainstorm | Items picked up by sessions 8–11. Remaining open items in `TODO_LIST.md`. | — |

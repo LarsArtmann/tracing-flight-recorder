@@ -16,8 +16,10 @@ in the existing repo (a leaked project name, and 680 committed build artifacts),
 which I correctly captured as TODOs but **failed to fix on the spot** — that is
 the session's primary self-inflicted gap.
 
-**One-line verdict:** Docs are now excellent and fully cross-verified; the
-codebase hygiene issues they expose remain unfixed.
+~~**One-line verdict:** Docs are now excellent and fully cross-verified; the
+codebase hygiene issues they expose remain unfixed.~~ All hygiene issues
+fixed in `5b26e62` (target/ purge, monitor365 removal) and `d905cf2`
+(DOMAIN_LANGUAGE.md built). v0.1.0 published. See Resolution below.
 
 ---
 
@@ -227,4 +229,19 @@ a tag; if still iterating → leave `[Unreleased]` as-is.
 
 ---
 
-_End of report. Awaiting instructions._
+_End of report._
+
+---
+
+## Resolution (2026-08-10)
+
+All session findings were resolved by subsequent sessions:
+
+| Finding | Resolution | Commit |
+|---------|-----------|--------|
+| 680 committed `target/` artifacts | Purged, `.git` 71MB → 188KB | `5b26e62` |
+| `monitor365` name leak in README + layer.rs | Replaced with neutral `my_app` | `5b26e62` |
+| `docs/DOMAIN_LANGUAGE.md` missing | Built (20 terms, 5 categories) | `d905cf2` |
+| No CI | GitHub Actions CI added (fmt/clippy/test/doc/MSRV) | `b688c4d` |
+| v0.1.0 not tagged/published | Tagged `v0.1.0`, published to crates.io | `36af9c8`, `dd6d2bb` |
+| All 50 "next things" brainstorm | Items picked up across sessions 2–7 (v0.1.0/v0.1.1 release), sessions 8–12 (v0.2.0/v0.3.0 features). Remaining open items in `TODO_LIST.md`. | — |

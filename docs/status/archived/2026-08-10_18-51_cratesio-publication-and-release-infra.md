@@ -358,3 +358,19 @@ as a GitHub Actions secret requires either the GitHub web UI or `gh secret
 set`. I can run `gh secret set CARGO_REGISTRY_TOKEN` if you want automated
 publish-on-tag for future releases, but I need your explicit approval to
 push your crates.io token into GitHub secrets.
+
+---
+
+## Resolution (2026-08-10)
+
+Crate published, CI green, automated publishing wired. All findings resolved.
+
+| Finding | Resolution | Commit |
+|---------|-----------|--------|
+| CHANGELOG wrong package size (150.9→81.7 KiB) | Corrected to 86.1 KiB / 17 files | `3f317fd` |
+| ROADMAP section 5 stale | Updated to reflect published state | `90cb0e0` |
+| CHANGELOG references removed `rustsec/audit-check` | Rewritten CI uses `cargo-audit` + `cargo-deny` | `3f317fd` |
+| `actions/checkout@v4` deprecation | Bumped to v7 | `3f317fd` |
+| `CARGO_REGISTRY_TOKEN` not configured | Configured — tag-push publishing automated | — |
+| `release.toml` not excluded | Excluded from published crate | `3f317fd` |
+| All 50 "next things" brainstorm | Items picked up by sessions 6–12. Remaining open items in `TODO_LIST.md`. | — |

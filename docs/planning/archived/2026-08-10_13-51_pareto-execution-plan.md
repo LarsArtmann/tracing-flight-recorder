@@ -512,3 +512,24 @@ Plus one process question:
 - Does not push to a remote — **no git remote is configured** (`git remote -v`
   is empty). The `git push` in step 8 of the prompt cannot succeed; flagged here
   so it isn't a silent failure.
+
+  ---
+
+  ## Resolution (2026-08-11)
+
+  Plan executed. P0–P2 (M1–M13) fully shipped in v0.1.0/v0.1.1. P3 items partially done.
+
+  | Tier | Tasks | Resolution |
+  |------|-------|-----------|
+  | P0 (M1–M2) | target/ purge, monitor365 fix, DOMAIN_LANGUAGE.md | Done `5b26e62`, `d905cf2` |
+  | P1 (M3–M7) | CI, examples, collision guard, OpenAPI test, README doctest | Done `b688c4d`, `36af9c8` |
+  | P2 (M8–M13) | Test hardening, proptest, release metadata, v0.1.0 cut, docs polish, must_use audit | Done `36af9c8` |
+  | P3 (M15) | Criterion benchmark baseline | Done `34ab131` |
+  | P3 (M14) | Time-windowed capture | Open — `ROADMAP.md` theme 1 |
+  | P3 (M16) | parking_lot / lock-free evaluation | Open — `TODO_LIST.md` (deferred) |
+  | P3 (M17) | Allocation reduction + zero-copy snapshot | Partially done (~9 allocs/event profiled). Zero-copy open in `ROADMAP.md` |
+  | P3 (M18) | DumpFormat trait + pretty-text dump | Open — `ROADMAP.md` theme 3 |
+  | P3 (M19) | Chrome Trace Event + NDJSON | NDJSON done. Chrome Trace open in `ROADMAP.md` |
+  | P3 (M20) | Panic-hook integration | Open — `ROADMAP.md` theme 4 |
+  | P3 (M21) | tower middleware + axum auto-dump | Open — `ROADMAP.md` theme 4 |
+  | P3 (M22) | fr_on_error! macro | Open — `ROADMAP.md` theme 4 |

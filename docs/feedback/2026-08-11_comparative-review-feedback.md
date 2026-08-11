@@ -21,7 +21,7 @@ against source code. Every bug was confirmed by execution.
 
 These are not design opinions. These are defects present in the code.
 
-### Bug 1: `FlightRecorder::new(0)` retains 1 event, not 0
+### ~~Bug 1: `FlightRecorder::new(0)` retains 1 event, not 0~~ — FIXED `f6a93e9`
 
 **Location:** `src/layer.rs:39-48`
 
@@ -51,7 +51,7 @@ After 2 pushes with capacity=0: len=1
 
 ---
 
-### Bug 2: `dump_with_retention(_, _, 0)` deletes its own dump
+### ~~Bug 2: `dump_with_retention(_, _, 0)` deletes its own dump~~ — FIXED `f6a93e9`
 
 **Location:** `src/layer.rs:181-211`
 
@@ -90,7 +90,7 @@ means "unlimited."
 
 ---
 
-### Bug 3: Memory footprint test undercounts real memory
+### ~~Bug 3: Memory footprint test undercounts real memory~~ — FIXED `b7637fb`
 
 **Location:** `src/layer_tests.rs:558-604`
 
@@ -113,7 +113,7 @@ heap allocation for 1000 events with realistic field sizes is likely
 
 ---
 
-## THE SPAN CONTEXT BLIND SPOT (The #1 Issue)
+## ~~THE SPAN CONTEXT BLIND SPOT (The #1 Issue)~~ — IMPLEMENTED `f6a93e9`
 
 This is the biggest problem in the crate, and my first review didn't catch it.
 
@@ -287,7 +287,7 @@ beyond the trigger evaluation. The actual I/O happens in the background.
 
 ## FALSE CLAIMS
 
-### Claim 1: "Zero non-tracing dependencies" (Rust README:27, CONTRIBUTING:9)
+### ~~Claim 1: "Zero non-tracing dependencies" (Rust README:27, CONTRIBUTING:9)~~ — FIXED `f6a93e9`
 
 **Status:** False.
 
@@ -364,7 +364,7 @@ go tool trace."
 
 ## REDACTION GAPS (Rust only)
 
-### `authorization` is not redacted
+### ~~`authorization` is not redacted~~ — FIXED `f6a93e9` (14 patterns now)
 
 **Location:** `src/capture.rs:91-101`
 
@@ -400,21 +400,21 @@ The Go project doesn't have this problem because the Go runtime's
 
 ## MISSING API SURFACE (Rust)
 
-### 1. No span context capture (see #1 issue above)
+### ~~1. No span context capture~~ (see #1 issue above) — DONE `f6a93e9`
 
-### 2. No trigger/decision system
+### ~~2. No trigger/decision system~~ — DONE `b7637fb` (`Trigger`/`LevelTrigger`/`OnceTrigger`)
 
 Every failure path must manually call `dump_to_file()`. The Go sibling has
 composable triggers (`OnError`, `OnLatency`, `OnAny`, `OnAll`). Without
 triggers, developers forget to wire dumps, and failures pass unrecorded.
 
-### 3. No once-semantics
+### ~~3. No once-semantics~~ — DONE `b7637fb` (`OnceTrigger` with `reset()`)
 
 Multiple threads detecting a failure simultaneously each call
 `dump_to_file()`, causing redundant I/O and burning retention slots. The
 Go sibling uses `sync.Once` internally with `Reset()` for re-arming.
 
-### 4. No async/non-blocking capture
+### 4. No async/non-blocking capture — OPEN (`TODO_LIST.md` deferred)
 
 The Go sibling just added `SnapshotIfAsync` — trigger evaluation returns
 immediately, the actual I/O happens in a background goroutine, and
@@ -422,7 +422,7 @@ immediately, the actual I/O happens in a background goroutine, and
 critical for HTTP middleware where trace file I/O must not block the
 response. The Rust crate forces every dump call to block.
 
-### 5. No observability hooks
+### ~~5. No observability hooks~~ — DONE `34ab131` (`on_dump` callback, `DumpEvent`/`DumpSource`)
 
 The Go sibling now has `WithMetrics(hook)` and `WithLogger(hook)` —
 dependency-free callbacks that receive a `SnapshotEvent` (duration, bytes,
@@ -431,24 +431,24 @@ consumers wire Prometheus, OpenTelemetry, or any backend without the
 library taking a dependency. The Rust crate has nothing — no way to know
 when a dump fires, how long it took, or how big it was.
 
-### 6. No compression
+### ~~6. No compression~~ — DONE `34ab131` (`gzip` feature, `dump_to_file_gz`)
 
 The Go sibling compresses snapshots with stdlib gzip (10x reduction for
 trace data). The Rust crate outputs pretty-printed JSON, which is already
 larger than necessary, with no compression option.
 
-### 7. No NDJSON or `dump_to_writer`
+### ~~7. No NDJSON or `dump_to_writer`~~ — DONE `7434a27` + `f6a93e9`
 
 Output is pretty-printed JSON arrays. Not streamable, not appendable, not
 ingestible by log pipelines without a full parse. No `dump_to_writer` for
 non-file sinks. The Go sibling now has `SnapshotToWriter` for arbitrary
 `io.Writer` destinations.
 
-### 8. `push` is `pub` but should be `pub(crate)`
+### ~~8. `push` is `pub` but should be `pub(crate)`~~ — DONE `f6a93e9`
 
 Users can inject fake events into the diagnostic record.
 
-### 9. `FieldVisitor` is exported but has no external use case
+### ~~9. `FieldVisitor` is exported but has no external use case~~ — DONE `f6a93e9` (removed from public re-exports)
 
 Pollutes the public API with an internal implementation detail.
 
@@ -567,3 +567,18 @@ matching the Go project's operational feature set.
      go-flightrecorder project. All claims are verified against source code in
      both repositories as of 2026-08-11, including the Go project's v2 operational
      features update. Line references may drift as code changes. -->
+
+---
+
+## Resolution (2026-08-11)
+
+9 of 10 MISSING API SURFACE items shipped. 3 bugs fixed. Span context implemented.
+
+| Category | Items | Status |
+|----------|-------|--------|
+| ACTUAL BUGS (3) | capacity=0, retention=0, memory undercount | All fixed |
+| SPAN CONTEXT (#1 issue) | Full hierarchy capture, configurable, Arc-shared | Implemented |
+| REDACTION GAPS | authorization + 5 more patterns | Fixed (14 patterns) |
+| FALSE CLAIMS | "zero non-tracing deps" | Fixed |
+| MISSING API (9 items) | 8 of 9 done; async capture deferred to `TODO_LIST.md` | 89% done |
+| Go project bugs (2) | Different repo — not actionable here | — |

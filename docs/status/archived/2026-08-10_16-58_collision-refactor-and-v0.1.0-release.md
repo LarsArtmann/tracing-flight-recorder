@@ -373,3 +373,18 @@ The `Cargo.toml` and CHANGELOG comparison links point to this URL, but no
 remote is configured. If the repo doesn't exist yet, the links are
 aspirational. If it exists under a different name or org, the Cargo.toml
 metadata is wrong.
+
+---
+
+## Resolution (2026-08-10)
+
+v0.1.0 tagged, published to crates.io. All findings resolved.
+
+| Finding | Resolution | Commit |
+|---------|-----------|--------|
+| CHANGELOG wrong package size (150.9→90.2 KiB) | Corrected to 86.1 KiB / 17 files | `3f317fd` |
+| ROADMAP section 5 stale | Updated across sessions 5–6 | `dd6d2bb`, `90cb0e0` |
+| No git remote | GitHub repo created, remote configured | `dd6d2bb` |
+| Not published to crates.io | Published (v0.1.0 + v0.1.1) | `dd6d2bb`, `3f317fd` |
+| README badges missing | Live on crates.io/docs.rs | `dd6d2bb` |
+| All 50 "next things" brainstorm | Items picked up by sessions 5–12. Remaining open items in `TODO_LIST.md`. | — |
