@@ -22,13 +22,30 @@ pub struct CapturedEvent {
     pub message: String,
     /// All structured key-value fields on the event.
     pub fields: Vec<(String, String)>,
+    /// The span hierarchy the event occurred inside (root-first, innermost-last).
+    /// Empty when the event was not inside any span.
+    pub spans: Vec<SpanContext>,
+}
+
+/// The context of a single span in the hierarchy when an event fires.
+///
+/// Each entry captures the span's name and its key-value fields as they were
+/// at the time the event was emitted. The collection is ordered root-first
+/// (outermost span first, innermost span last).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct SpanContext {
+    /// The span name (the first argument to `info_span!`, `debug_span!`, etc.).
+    pub name: String,
+    /// Key-value fields recorded on the span (sensitive fields redacted).
+    pub fields: Vec<(String, String)>,
 }
 
 impl CapturedEvent {
     /// Capture a `tracing::Event` into a `CapturedEvent`.
     ///
-    /// Uses [`FieldVisitor`] to extract all fields (including the conventional
-    /// `"message"` field) from the event.
+    /// Uses an internal field visitor to extract all fields (including the
+    /// conventional `"message"` field) from the event.
     #[must_use]
     pub fn from_event(event: &Event<'_>) -> Self {
         let mut visitor = FieldVisitor::default();
@@ -42,6 +59,7 @@ impl CapturedEvent {
             target: event.metadata().target().to_string(),
             message,
             fields: visitor.into_fields(),
+            spans: Vec::new(),
         }
     }
 }
@@ -84,20 +102,57 @@ impl FieldVisitor {
 
 /// Check if a field name likely contains a secret value that should be redacted.
 ///
-/// Matches common secret-bearing field names (`token`, `password`, `secret`, `api_key`,
-/// `credential`, `passphrase`, `private_key`). Over-redaction is intentional — a false
-/// positive (redacting a harmless field) is far less costly than a false negative
-/// (leaking a secret into the ring buffer).
+/// Matches common secret-bearing field names (`token`, `password`, `secret`,
+/// `api_key`/`apikey`, `credential`, `passphrase`, `private_key`,
+/// `authorization`, `auth`, `bearer`, `cookie`, `session_id`, `access_code`).
+/// Over-redaction is intentional — a false positive (redacting a harmless field)
+/// is far less costly than a false negative (leaking a secret into the ring buffer).
+///
+/// Uses zero-allocation ASCII case-insensitive substring matching so no `String`
+/// is allocated on the hot path.
 fn is_sensitive_field(name: &str) -> bool {
-    let lower = name.to_lowercase();
-    lower.contains("token")
-        || lower.contains("password")
-        || lower.contains("secret")
-        || lower.contains("api_key")
-        || lower.contains("apikey")
-        || lower.contains("credential")
-        || lower.contains("passphrase")
-        || lower.contains("private_key")
+    SENSITIVE_PATTERNS
+        .iter()
+        .any(|&pattern| contains_ascii_case_insensitive(name, pattern))
+}
+
+/// Field-name substrings that trigger secret redaction.
+const SENSITIVE_PATTERNS: &[&str] = &[
+    "token",
+    "password",
+    "secret",
+    "api_key",
+    "apikey",
+    "credential",
+    "passphrase",
+    "private_key",
+    "authorization",
+    "auth",
+    "bearer",
+    "cookie",
+    "session_id",
+    "access_code",
+];
+
+/// Check if `haystack` contains `needle` using ASCII case-insensitive comparison.
+///
+/// All sensitive-field patterns are ASCII, so byte-level `eq_ignore_ascii_case` is
+/// sufficient and avoids the heap allocation that `str::to_lowercase` would incur.
+/// Unicode multi-byte chars in the haystack simply never match an ASCII needle byte.
+fn contains_ascii_case_insensitive(haystack: &str, needle: &str) -> bool {
+    let needle_bytes = needle.as_bytes();
+    if needle_bytes.is_empty() {
+        return true;
+    }
+    haystack
+        .as_bytes()
+        .windows(needle_bytes.len())
+        .any(|window| {
+            window
+                .iter()
+                .zip(needle_bytes)
+                .all(|(h, n)| h.eq_ignore_ascii_case(n))
+        })
 }
 
 impl Visit for FieldVisitor {
@@ -164,6 +219,7 @@ mod tests {
             target: "test::module".to_string(),
             message: "something broke".to_string(),
             fields: vec![("device".to_string(), "dev-1".to_string())],
+            spans: vec![],
         };
         let json = serde_json::to_string(&event).unwrap_or_default();
         assert!(json.contains("\"message\":\"something broke\""));
@@ -181,6 +237,7 @@ mod tests {
                 ("count".to_string(), "42".to_string()),
                 ("active".to_string(), "true".to_string()),
             ],
+            spans: vec![],
         };
         let json = serde_json::to_string(&original).unwrap_or_default();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap_or_default();

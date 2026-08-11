@@ -1,12 +1,13 @@
 //! Ring-buffer flight recorder and `tracing_subscriber::Layer` implementation.
 
-use crate::capture::CapturedEvent;
+use crate::capture::{CapturedEvent, FieldVisitor, SpanContext};
 use crate::DEFAULT_CAPACITY;
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tracing::{Event, Subscriber};
 use tracing_subscriber::layer::Context;
+use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::Layer;
 
 /// A bounded in-memory ring buffer of tracing events.
@@ -36,7 +37,10 @@ impl FlightRecorder {
     }
 
     /// Push a captured event into the ring buffer, evicting the oldest if at capacity.
-    pub fn push(&self, event: CapturedEvent) {
+    pub(crate) fn push(&self, event: CapturedEvent) {
+        if self.capacity == 0 {
+            return;
+        }
         let mut buf = self
             .buffer
             .lock()
@@ -66,6 +70,39 @@ impl FlightRecorder {
     pub fn dump_to_json(&self) -> serde_json::Result<String> {
         let events = self.snapshot();
         serde_json::to_string_pretty(&events)
+    }
+
+    /// Write the buffer as pretty-printed JSON to any writer.
+    ///
+    /// Streams directly to the writer without buffering the full JSON string,
+    /// making it suitable for large buffers or network sinks.
+    ///
+    /// # Errors
+    ///
+    /// Returns `io::Error` if serialization or writing fails.
+    pub fn dump_to_writer(&self, writer: &mut dyn std::io::Write) -> std::io::Result<()> {
+        let events = self.snapshot();
+        serde_json::to_writer_pretty(writer, &events).map_err(std::io::Error::other)
+    }
+
+    /// Serialize the buffer as JSON Lines (NDJSON) — one compact JSON object per line.
+    ///
+    /// Each line is a self-contained JSON object representing a single event.
+    /// This format is streamable, appendable, and ingestible by log pipelines
+    /// (e.g. `jq`, Elasticsearch, Datadog) without a full-array parse.
+    ///
+    /// # Errors
+    ///
+    /// Returns `serde_json::Error` if serialization fails.
+    pub fn dump_to_json_lines(&self) -> serde_json::Result<String> {
+        let events = self.snapshot();
+        let mut output = String::new();
+        for event in &events {
+            let line = serde_json::to_string(event)?;
+            output.push_str(&line);
+            output.push('\n');
+        }
+        Ok(output)
     }
 
     /// Write the buffer to a file as pretty-printed JSON.
@@ -127,6 +164,10 @@ impl FlightRecorder {
     /// `{prefix}-{YYYYmmddT-HHMMSS}-1.json`, `-2.json`, etc. After writing,
     /// deletes the oldest snapshots matching the prefix beyond `max_files`.
     ///
+    /// A `max_files` of 0 means "unlimited" — no retention cleanup is performed.
+    /// This matches the convention used by the Go sibling project and avoids the
+    /// footgun of writing a snapshot and then immediately deleting it.
+    ///
     /// # Errors
     ///
     /// Returns `io::Error` if serialization, directory creation, or writing fails.
@@ -178,7 +219,15 @@ fn resolve_collision_path(dir: &Path, base: &str, limit: u32) -> std::io::Result
 }
 
 /// Delete oldest snapshot files in `dir` matching `prefix*.json` beyond `max_files`.
+///
+/// A `max_files` of 0 means "unlimited" — no cleanup is performed. This avoids the
+/// footgun where writing a snapshot and then cleaning up with `max_files=0` would
+/// immediately delete the just-written file (silent data loss).
 fn cleanup_old_snapshots(dir: &Path, prefix: &str, max_files: usize) {
+    if max_files == 0 {
+        return;
+    }
+
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -251,11 +300,75 @@ impl FlightRecorderLayer {
 
 impl<S> Layer<S> for FlightRecorderLayer
 where
-    S: Subscriber,
+    S: Subscriber + for<'lookup> LookupSpan<'lookup>,
 {
-    fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
-        self.recorder.push(CapturedEvent::from_event(event));
+    fn on_new_span(
+        &self,
+        attrs: &tracing::span::Attributes<'_>,
+        id: &tracing::span::Id,
+        ctx: Context<'_, S>,
+    ) {
+        let mut visitor = FieldVisitor::default();
+        attrs.record(&mut visitor);
+        let fields = visitor.into_fields();
+        if let Some(span) = ctx.span(id) {
+            span.extensions_mut().insert(CapturedSpanFields(fields));
+        }
     }
+
+    fn on_record(
+        &self,
+        id: &tracing::span::Id,
+        values: &tracing::span::Record<'_>,
+        ctx: Context<'_, S>,
+    ) {
+        let mut visitor = FieldVisitor::default();
+        values.record(&mut visitor);
+        let new_fields = visitor.into_fields();
+        if let Some(span) = ctx.span(id) {
+            let mut extensions = span.extensions_mut();
+            match extensions.get_mut::<CapturedSpanFields>() {
+                Some(existing) => existing.0.extend(new_fields),
+                None => extensions.insert(CapturedSpanFields(new_fields)),
+            }
+        }
+    }
+
+    fn on_event(&self, event: &Event<'_>, ctx: Context<'_, S>) {
+        let mut captured = CapturedEvent::from_event(event);
+        captured.spans = capture_span_context(event, &ctx);
+        self.recorder.push(captured);
+    }
+}
+
+/// Internal wrapper for storing captured span fields as an extension on span data.
+///
+/// Stored via `LookupSpan`'s extension mechanism when a span is created or
+/// updated, then read back in `on_event` to populate [`SpanContext`].
+struct CapturedSpanFields(Vec<(String, String)>);
+
+/// Walk the span hierarchy around `event` and collect each span's name + fields.
+///
+/// Returns spans in root-first order (outermost span first, innermost last).
+/// Sensitive span fields are already redacted because they were captured via
+/// [`FieldVisitor`] in `on_new_span` / `on_record`.
+fn capture_span_context<S>(event: &Event<'_>, ctx: &Context<'_, S>) -> Vec<SpanContext>
+where
+    S: Subscriber + for<'lookup> LookupSpan<'lookup>,
+{
+    let Some(scope) = ctx.event_scope(event) else {
+        return Vec::new();
+    };
+    scope
+        .from_root()
+        .map(|span_ref| SpanContext {
+            name: span_ref.name().to_string(),
+            fields: span_ref
+                .extensions()
+                .get::<CapturedSpanFields>()
+                .map_or_else(Vec::new, |f| f.0.clone()),
+        })
+        .collect()
 }
 
 #[cfg(test)]

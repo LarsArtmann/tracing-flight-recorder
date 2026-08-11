@@ -6,6 +6,10 @@
 //! breaker opening, a panic — you snapshot the buffer and get the last N
 //! seconds of verbose (DEBUG/TRACE) context that would otherwise be lost.
 //!
+//! Events capture their full span hierarchy (names + fields), so snapshots
+//! preserve request context like `request_id`, `user_id`, and `method`.
+//! Sensitive fields are automatically redacted in both events and spans.
+//!
 //! The recorder pays zero I/O cost until a snapshot is triggered.
 //!
 //! # Quick Start
@@ -75,7 +79,7 @@ mod layer;
 #[doc = include_str!("../README.md")]
 struct _ReadmeDoctests;
 
-pub use capture::{CapturedEvent, FieldVisitor};
+pub use capture::{CapturedEvent, SpanContext};
 pub use layer::{FlightRecorder, FlightRecorderLayer};
 
 /// Default ring-buffer capacity (number of events).

@@ -21,10 +21,12 @@ The recorder pays zero I/O cost until a snapshot is triggered.
 - **Bounded ring buffer** — fixed capacity, evicts oldest events first
 - **`tracing_subscriber::Layer`** — drops into any existing tracing setup
 - **Per-layer filtering** — capture DEBUG/TRACE while console stays at INFO
-- **Secret redaction** — fields named `token`, `password`, `secret`, `api_key`, etc. are automatically redacted to `[REDACTED]`
-- **JSON snapshots** — `dump_to_json()`, `dump_to_file()`, `dump_with_retention()`
+- **Span context capture** — events record their full span hierarchy (names + fields, root-first)
+- **Secret redaction** — fields named `token`, `password`, `secret`, `authorization`, `cookie`, `session_id`, etc. are automatically redacted to `[REDACTED]`
+- **JSON snapshots** — `dump_to_json()`, `dump_to_file()`, `dump_to_writer()`, `dump_with_retention()`
+- **NDJSON output** — `dump_to_json_lines()` for streamable, line-delimited JSON ingestible by log pipelines
 - **Optional OpenAPI** — `utoipa::ToSchema` derive behind the `openapi` feature flag
-- **Zero non-tracing dependencies** — pure `tracing` ecosystem crate
+- **Minimal dependencies** — `tracing` ecosystem + `serde`/`chrono` for serialization
 
 ## Quick Start
 
@@ -88,9 +90,15 @@ tracing-flight-recorder = { version = "0.1", features = ["openapi"] }
 
 The `FlightRecorderLayer` is a `tracing_subscriber::Layer` that receives every
 event that passes its per-layer filter. Each event is captured into a
-`CapturedEvent` struct (timestamp, level, target, message, fields) and pushed
-into a bounded `VecDeque` ring buffer. When the buffer is full, the oldest event
-is evicted.
+`CapturedEvent` struct (timestamp, level, target, message, fields, and the
+full span hierarchy) and pushed into a bounded `VecDeque` ring buffer. When
+the buffer is full, the oldest event is evicted.
+
+When an event fires inside a span (or nested spans), the layer captures the
+span stack — names and key-value fields — so that snapshots preserve the
+request context: `request_id`, `user_id`, `method`, `path`, and any other
+fields set on parent spans. Sensitive fields in both events and spans are
+redacted automatically.
 
 The key insight from Go 1.25's flight recorder: you always want verbose
 (DEBUG/TRACE) context available, but you don't want to pay the I/O cost of

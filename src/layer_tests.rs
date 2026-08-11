@@ -9,6 +9,7 @@ fn make_event(msg: &str) -> CapturedEvent {
         target: "test".to_string(),
         message: msg.to_string(),
         fields: vec![],
+        spans: vec![],
     }
 }
 
@@ -68,6 +69,53 @@ fn dump_to_file_writes_valid_json() {
 }
 
 #[test]
+fn dump_to_writer_produces_valid_json() {
+    let recorder = FlightRecorder::new(100);
+    recorder.push(make_event("writer-test-1"));
+    recorder.push(make_event("writer-test-2"));
+
+    let mut buf = Vec::new();
+    recorder.dump_to_writer(&mut buf).unwrap();
+
+    let json = String::from_utf8(buf).unwrap();
+    let parsed: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed.len(), 2);
+}
+
+#[test]
+fn dump_to_json_lines_produces_valid_ndjson() {
+    let recorder = FlightRecorder::new(100);
+    recorder.push(make_event("line-1"));
+    recorder.push(make_event("line-2"));
+    recorder.push(make_event("line-3"));
+
+    let ndjson = recorder.dump_to_json_lines().unwrap();
+    let lines: Vec<&str> = ndjson.lines().collect();
+    assert_eq!(lines.len(), 3, "one JSON object per line");
+
+    // Each line must be a valid standalone JSON object.
+    for (i, line) in lines.iter().enumerate() {
+        let parsed: serde_json::Value = serde_json::from_str(line)
+            .unwrap_or_else(|e| panic!("line {i} is not valid JSON: {e}\n  line: {line}"));
+        assert!(parsed.is_object(), "each line must be a JSON object");
+    }
+
+    // Verify message field round-trips.
+    let first: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    assert_eq!(first["message"], "line-1");
+}
+
+#[test]
+fn dump_to_json_lines_empty_buffer_produces_empty_string() {
+    let recorder = FlightRecorder::new(100);
+    let ndjson = recorder.dump_to_json_lines().unwrap();
+    assert!(
+        ndjson.is_empty(),
+        "empty buffer should produce empty NDJSON"
+    );
+}
+
+#[test]
 fn clear_empties_buffer() {
     let recorder = FlightRecorder::new(100);
     recorder.push(make_event("x"));
@@ -76,6 +124,16 @@ fn clear_empties_buffer() {
     recorder.clear();
     assert!(recorder.is_empty());
     assert_eq!(recorder.len(), 0);
+}
+
+#[test]
+fn capacity_zero_retains_nothing() {
+    let recorder = FlightRecorder::new(0);
+    recorder.push(make_event("a"));
+    recorder.push(make_event("b"));
+    assert_eq!(recorder.len(), 0, "capacity 0 must retain zero events");
+    assert!(recorder.is_empty());
+    assert!(recorder.snapshot().is_empty());
 }
 
 #[test]
@@ -519,6 +577,7 @@ fn multi_thread_stress_push_and_snapshot() {
                     target: format!("thread-{t}"),
                     message: format!("msg-{t}-{i}"),
                     fields: vec![],
+                    spans: vec![],
                 });
             }
         }));
@@ -571,6 +630,7 @@ fn memory_footprint_of_default_capacity_buffer() {
                 ("duration_ms".to_string(), "42".to_string()),
                 ("status".to_string(), "ok".to_string()),
             ],
+            spans: vec![],
         });
     }
 
@@ -603,7 +663,247 @@ fn memory_footprint_of_default_capacity_buffer() {
     );
 }
 
-// ── Collision limit guard test ───────────────────────────────────────
+// ── Span context capture tests ───────────────────────────────────────
+//
+// These verify that events fired inside spans capture the full span hierarchy
+// (names + fields), addressing the central design flaw where `_ctx` was discarded.
+
+#[test]
+fn event_inside_single_span_captures_span_context() {
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let recorder = FlightRecorder::new(100);
+    let layer = FlightRecorderLayer::new(recorder.clone());
+
+    let subscriber = tracing_subscriber::registry().with(layer);
+
+    tracing::subscriber::with_default(subscriber, || {
+        let span = tracing::info_span!("http_request", method = "GET", path = "/api/users");
+        let _enter = span.enter();
+        tracing::error!("database query failed");
+    });
+
+    let snap = recorder.snapshot();
+    assert_eq!(snap.len(), 1);
+    let event = &snap[0];
+    assert_eq!(event.message, "database query failed");
+    assert_eq!(event.spans.len(), 1, "event should have one parent span");
+    assert_eq!(event.spans[0].name, "http_request");
+
+    let span_fields: std::collections::HashMap<&str, &str> = event.spans[0]
+        .fields
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    assert_eq!(span_fields.get("method"), Some(&"GET"));
+    assert_eq!(span_fields.get("path"), Some(&"/api/users"));
+}
+
+#[test]
+fn event_inside_nested_spans_captures_full_hierarchy() {
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let recorder = FlightRecorder::new(100);
+    let layer = FlightRecorderLayer::new(recorder.clone());
+
+    let subscriber = tracing_subscriber::registry().with(layer);
+
+    tracing::subscriber::with_default(subscriber, || {
+        let outer = tracing::info_span!("http_request", request_id = "req-abc");
+        let _outer_guard = outer.enter();
+        let inner = tracing::debug_span!("db_query", table = "users");
+        let _inner_guard = inner.enter();
+        tracing::warn!("connection timeout");
+    });
+
+    let snap = recorder.snapshot();
+    assert_eq!(snap.len(), 1);
+    let event = &snap[0];
+    assert_eq!(
+        event.spans.len(),
+        2,
+        "event should capture both parent spans"
+    );
+    // Root-first ordering: http_request is outermost, db_query is innermost.
+    assert_eq!(event.spans[0].name, "http_request");
+    assert_eq!(event.spans[1].name, "db_query");
+
+    let outer_fields: std::collections::HashMap<&str, &str> = event.spans[0]
+        .fields
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    assert_eq!(outer_fields.get("request_id"), Some(&"req-abc"));
+
+    let inner_fields: std::collections::HashMap<&str, &str> = event.spans[1]
+        .fields
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    assert_eq!(inner_fields.get("table"), Some(&"users"));
+}
+
+#[test]
+fn event_outside_any_span_has_empty_span_context() {
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let recorder = FlightRecorder::new(100);
+    let layer = FlightRecorderLayer::new(recorder.clone());
+
+    let subscriber = tracing_subscriber::registry().with(layer);
+
+    tracing::subscriber::with_default(subscriber, || {
+        tracing::info!("standalone event");
+    });
+
+    let snap = recorder.snapshot();
+    assert_eq!(snap.len(), 1);
+    assert!(
+        snap[0].spans.is_empty(),
+        "event outside any span should have empty spans vec"
+    );
+}
+
+#[test]
+fn sensitive_span_fields_are_redacted() {
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let recorder = FlightRecorder::new(100);
+    let layer = FlightRecorderLayer::new(recorder.clone());
+
+    let subscriber = tracing_subscriber::registry().with(layer);
+
+    tracing::subscriber::with_default(subscriber, || {
+        let span = tracing::info_span!(
+            "auth",
+            authorization = "Bearer secret-token",
+            password = "hunter2",
+            user_id = "user-42"
+        );
+        let _enter = span.enter();
+        tracing::error!("auth failed");
+    });
+
+    let snap = recorder.snapshot();
+    assert_eq!(snap.len(), 1);
+    let span_fields: std::collections::HashMap<&str, &str> = snap[0].spans[0]
+        .fields
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+
+    assert_eq!(
+        span_fields.get("authorization"),
+        Some(&"[REDACTED]"),
+        "span authorization field must be redacted"
+    );
+    assert_eq!(
+        span_fields.get("password"),
+        Some(&"[REDACTED]"),
+        "span password field must be redacted"
+    );
+    assert_eq!(
+        span_fields.get("user_id"),
+        Some(&"user-42"),
+        "non-sensitive span field must be preserved"
+    );
+}
+
+#[test]
+fn span_fields_updated_via_record_are_captured() {
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let recorder = FlightRecorder::new(100);
+    let layer = FlightRecorderLayer::new(recorder.clone());
+
+    let subscriber = tracing_subscriber::registry().with(layer);
+
+    tracing::subscriber::with_default(subscriber, || {
+        let span = tracing::info_span!(
+            "request",
+            method = "POST",
+            status_code = tracing::field::Empty
+        );
+        let _enter = span.enter();
+        span.record("status_code", 500i64);
+        tracing::error!("handler failed");
+    });
+
+    let snap = recorder.snapshot();
+    assert_eq!(snap.len(), 1);
+    let span_fields: std::collections::HashMap<&str, &str> = snap[0].spans[0]
+        .fields
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+
+    assert_eq!(span_fields.get("method"), Some(&"POST"));
+    assert_eq!(
+        span_fields.get("status_code"),
+        Some(&"500"),
+        "field added via span.record() must be captured"
+    );
+}
+
+// ── Redaction pattern tests ──────────────────────────────────────────
+
+#[test]
+fn expanded_redaction_patterns_cover_http_credentials() {
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let recorder = FlightRecorder::new(100);
+    let layer = FlightRecorderLayer::new(recorder.clone());
+
+    let subscriber = tracing_subscriber::registry().with(layer);
+
+    tracing::subscriber::with_default(subscriber, || {
+        tracing::info!(
+            authorization = "Bearer abc123",
+            cookie = "session=xyz",
+            session_id = "sess-456",
+            access_code = "code-789",
+            bearer = "token-value",
+            device = "dev-1",
+            "http request"
+        );
+    });
+
+    let snap = recorder.snapshot();
+    assert_eq!(snap.len(), 1);
+    let event = &snap[0];
+    let fields: std::collections::HashMap<&str, &str> = event
+        .fields
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+
+    assert_eq!(fields.get("authorization"), Some(&"[REDACTED]"));
+    assert_eq!(fields.get("cookie"), Some(&"[REDACTED]"));
+    assert_eq!(fields.get("session_id"), Some(&"[REDACTED]"));
+    assert_eq!(fields.get("access_code"), Some(&"[REDACTED]"));
+    assert_eq!(fields.get("bearer"), Some(&"[REDACTED]"));
+    assert_eq!(fields.get("device"), Some(&"dev-1"));
+}
+
+#[test]
+fn dump_with_retention_zero_max_files_means_unlimited() {
+    let recorder = FlightRecorder::new(100);
+    recorder.push(make_event("zero-retention"));
+
+    let dir = tempfile_dir();
+    // max_files=0 must mean "no retention cleanup" (unlimited), NOT "delete everything."
+    // The just-written snapshot must survive.
+    let path = recorder.dump_with_retention(&dir, "snap", 0).unwrap();
+
+    assert!(
+        path.exists(),
+        "snapshot must not be deleted when max_files=0"
+    );
+
+    let contents = std::fs::read_to_string(&path).unwrap();
+    let parsed: Vec<serde_json::Value> = serde_json::from_str(&contents).unwrap();
+    assert_eq!(parsed.len(), 1);
+}
 
 #[test]
 fn resolve_collision_path_returns_error_at_limit() {

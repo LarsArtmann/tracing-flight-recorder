@@ -54,20 +54,21 @@ Four source files, all under `src/`:
 | File             | Responsibility                                                                                          |
 | ---------------- | ------------------------------------------------------------------------------------------------------- |
 | `lib.rs`         | Crate docs, lint configuration (crate-level `cfg_attr(test, allow)`), module wiring, public re-exports, `DEFAULT_CAPACITY` constant. |
-| `capture.rs`     | `CapturedEvent` struct (the buffered unit), `FieldVisitor` (`tracing::field::Visit` impl), secret redaction (`is_sensitive_field`), `level_to_string`. Has inline `#[cfg(test)] mod tests`. |
-| `layer.rs`       | `FlightRecorder` (the `Arc<Mutex<VecDeque>>` ring buffer + dump methods) and `FlightRecorderLayer` (`tracing_subscriber::Layer` impl). Wires its tests in via `#[path = "layer_tests.rs"]`. |
+| `capture.rs`     | `CapturedEvent` + `SpanContext` structs (the buffered unit), `FieldVisitor` (`tracing::field::Visit` impl), secret redaction (`is_sensitive_field`, `contains_ascii_case_insensitive`), `level_to_string`. Has inline `#[cfg(test)] mod tests`. |
+| `layer.rs`       | `FlightRecorder` (the `Arc<Mutex<VecDeque>>` ring buffer + dump methods) and `FlightRecorderLayer` (`tracing_subscriber::Layer` impl with `on_new_span`/`on_record`/`on_event` for span context capture). `CapturedSpanFields` extension wrapper, `capture_span_context` helper. Wires its tests in via `#[path = "layer_tests.rs"]`. |
 | `layer_tests.rs` | Tests for `layer.rs`. Lives in its own file (not inline) — included by `#[cfg(test)] #[path = "layer_tests.rs"] mod tests;` at the bottom of `layer.rs`. Use `use super::*;` and `use crate::capture::CapturedEvent;`. |
 
-**Data flow:** `tracing` event → `FlightRecorderLayer::on_event` → `CapturedEvent::from_event` (runs `FieldVisitor`, which redacts sensitive fields) → `FlightRecorder::push` (evicts oldest if at capacity) → `VecDeque` ring buffer. Snapshot/dump methods clone and serialize on demand.
+**Data flow:** `tracing` event → `FlightRecorderLayer::on_event` → `CapturedEvent::from_event` (runs `FieldVisitor`, which redacts sensitive fields) + `capture_span_context` (walks `ctx.event_scope().from_root()`, reads `CapturedSpanFields` extensions stored by `on_new_span`/`on_record`) → `FlightRecorder::push` (evicts oldest if at capacity) → `VecDeque` ring buffer. Snapshot/dump methods clone and serialize on demand.
 
 ## Conventions
 
-- **Public API is the `tracing` ecosystem types**: `FlightRecorder`, `FlightRecorderLayer`, `CapturedEvent`, `FieldVisitor`. All are re-exported from `lib.rs`.
+- **Public API**: `FlightRecorder`, `FlightRecorderLayer`, `CapturedEvent`, `SpanContext`. All re-exported from `lib.rs`. (`FieldVisitor` and `push` are `pub(crate)` — internal implementation details, not for external use.)
 - **`FlightRecorder` is `Clone` and cheap** — all clones share one `Arc<Mutex<VecDeque>>`. Pattern: create one, clone it into the layer, keep the original for dumping.
 - **Docs use `///` + module-level `//!`**. Doc examples are `no_run`. Public items have `# Errors` / `# Panics` sections where relevant.
 - **`#[must_use]`** on all constructors and accessors returning owned data.
-- **Secret redaction is automatic and over-broad**: any field whose name contains `token`, `password`, `secret`, `api_key`/`apikey`, `credential`, `passphrase`, or `private_key` (case-insensitive, substring match) is stored as `[REDACTED]`. Over-redaction is intentional — do not narrow it without strong reason.
-- **Feature flag `openapi`**: enables `dep:utoipa` and derives `utoipa::ToSchema` on `CapturedEvent` behind `#[cfg_attr(feature = "openapi", derive(...))]`. When adding fields to `CapturedEvent`, no extra work is needed — the derive picks them up automatically under the feature.
+- **Span context capture**: `FlightRecorderLayer` implements `on_new_span` + `on_record` to store span fields as a `CapturedSpanFields` extension on span data (via `LookupSpan`). In `on_event`, `capture_span_context` walks `ctx.event_scope(event).from_root()` to populate `CapturedEvent.spans` (root-first ordering). The `Layer` impl requires `S: Subscriber + for<'lookup> LookupSpan<'lookup>`. Sensitive span fields are redacted (same `FieldVisitor` pipeline). Tests: `event_inside_single_span_captures_span_context`, `event_inside_nested_spans_captures_full_hierarchy`, `sensitive_span_fields_are_redacted`, `span_fields_updated_via_record_are_captured`.
+- **Secret redaction is automatic and over-broad**: any field whose name contains `token`, `password`, `secret`, `api_key`/`apikey`, `credential`, `passphrase`, `private_key`, `authorization`, `auth`, `bearer`, `cookie`, `session_id`, or `access_code` (case-insensitive, substring match via zero-allocation ASCII comparison in `contains_ascii_case_insensitive`) is stored as `[REDACTED]`. Applies to both event fields and span fields. Over-redaction is intentional — do not narrow it without strong reason.
+- **Feature flag `openapi`**: enables `dep:utoipa` and derives `utoipa::ToSchema` on `CapturedEvent` and `SpanContext` behind `#[cfg_attr(feature = "openapi", derive(...))]`. When adding fields to either struct, no extra work is needed — the derive picks them up automatically under the feature.
 
 ## Critical Gotcha: Per-Layer Filtering
 
