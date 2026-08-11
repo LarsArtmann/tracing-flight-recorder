@@ -43,14 +43,6 @@ memory-footprint test accuracy fix. See `CHANGELOG.md` for details.
 | `SmallVec` for fields | 🔴 `TODO` | ~1h | Most events have <8 fields. |
 | Evaluate `no_std` compatibility | 🔴 `TODO` | ~4h | For embedded use cases. |
 
-## Cross-Project
-
-| Task | Status | Effort | Notes |
-|------|--------|--------|-------|
-| Fix Go project `options.go:121` — false gzip claim | 🔴 `TODO` | ~5m | "loadable by go tool trace" is false. Different repo. |
-| Fix Go project `FEATURES.md:56` — same false gzip claim | 🔴 `TODO` | ~5m | Different repo. |
-| Write feature-parity matrix (Rust vs Go sibling) | 🔴 `TODO` | ~1h | Track which features match/exceed/lag. |
-
 ---
 
 <!-- Guidance for the builder filling this in:
