@@ -36,6 +36,8 @@
 | Structured field capture (all types) | 🟢 `FULLY_FUNCTIONAL` | `FieldVisitor` handles str/bool/i64/u64/f64/i128/u128/debug/error (`src/capture.rs:163`); tested `layer_captures_structured_fields_from_real_events` |
 | Span context capture (hierarchy)     | 🟢 `FULLY_FUNCTIONAL` | `on_new_span`/`on_record` store span fields as `LookupSpan` extensions; `on_event` walks `event_scope().from_root()` to build `Vec<SpanContext>`; tested `event_inside_single_span_captures_span_context`, `event_inside_nested_spans_captures_full_hierarchy`, `span_fields_updated_via_record_are_captured`, `span_context_captured_with_per_layer_filter` |
 | Span field redaction                 | 🟢 `FULLY_FUNCTIONAL` | Sensitive fields on spans are redacted just like event fields; tested `sensitive_span_fields_are_redacted` |
+| Configurable span capture            | 🟢 `FULLY_FUNCTIONAL` | `FlightRecorderLayer::with_span_capture(recorder, bool)` disables span storage + scope walking; `new()` defaults to ON; tested `span_capture_disabled_produces_empty_spans`, `span_capture_enabled_is_the_default` |
+| `Arc`-shared span fields (O(1) clone) | 🟢 `FULLY_FUNCTIONAL` | `SpanContext.fields: Arc<Vec<…>>` — events in the same span share one allocation; clone-on-write on `span.record()`; tested `events_in_same_span_share_span_fields_allocation`, `span_fields_updated_via_record_do_not_mutate_already_captured_events` |
 | Layer requires `LookupSpan`          | 🟡 design constraint   | `S: Subscriber + for<'lookup> LookupSpan<'lookup>` bound on `Layer` impl. Registry-based subscribers satisfy this; plain `Subscriber` impls without `LookupSpan` cannot use the layer. |
 
 ## Secret Redaction
@@ -55,12 +57,22 @@
 | NDJSON writer streaming         | 🟢 `FULLY_FUNCTIONAL` | `dump_to_writer_lines()` streams NDJSON to any `impl Write` (`src/layer.rs:108`); tested `dump_to_writer_lines_produces_valid_ndjson`, `dump_to_writer_lines_empty_buffer_writes_nothing` |
 | File dump with dir creation     | 🟢 `FULLY_FUNCTIONAL` | `dump_to_file()` creates parent dirs (`src/layer.rs:120`); tested `dump_to_file_writes_valid_json` |
 | Retention dumps with pruning    | 🟢 `FULLY_FUNCTIONAL` | `dump_with_retention()` writes `{prefix}-{timestamp}.json` with same-second collision guard (`-{counter}` suffix, 9999 limit), deletes oldest beyond max (`src/layer.rs:175`); `max_files=0` means unlimited; tested `dump_with_retention_creates_file_and_dir`, `dump_with_retention_prunes_old_snapshots`, `dump_with_retention_does_not_overwrite_same_second`, `dump_with_retention_zero_max_files_means_unlimited`, `resolve_collision_path_*` |
+| Dump metadata envelope           | 🟢 `FULLY_FUNCTIONAL` | `FlightRecorderDump { schema_version, captured_at, crate_version, event_count, trigger_reason, events }` via `dump_envelope`, `dump_envelope_to_json`, `dump_envelope_to_file`, `dump_with_retention_envelope`; tested `dump_envelope_to_file_writes_metadata_and_events`, `dump_envelope_round_trips_through_json`, `dump_with_retention_envelope_writes_envelope_format` |
+
+## Trigger System
+
+| Feature                              | Status                | Notes                                                                                |
+| ------------------------------------ | --------------------- | ------------------------------------------------------------------------------------ |
+| `Trigger` trait                      | 🟢 `FULLY_FUNCTIONAL` | `Send + Sync` predicate with `should_dump` + `name`; `src/trigger.rs`; unit-tested in-module |
+| `LevelTrigger` (severity threshold) | 🟢 `FULLY_FUNCTIONAL` | Fires at/above a configured `Level`; `LevelTrigger::error()` convenience; tested `level_trigger_*` |
+| `OnceTrigger` (once + reset)        | 🟢 `FULLY_FUNCTIONAL` | Decorator: fires once until `reset()`; `has_fired()` query; tested `once_trigger_*` |
+| Automatic layer dump-on-trigger     | 🟢 `FULLY_FUNCTIONAL` | `FlightRecorderLayer::with_dump_on(trigger, dir, prefix, max_files)` writes an envelope when the trigger fires; tested `trigger_dumps_automatically_on_error`, `trigger_dump_envelope_carries_reason_and_events`, `once_trigger_dumps_only_once_across_multiple_errors`, `layer_without_trigger_creates_no_dump_files` |
 
 ## Integrations
 
 | Feature                              | Status                      | Notes                                                                                |
 | ------------------------------------ | --------------------------- | ------------------------------------------------------------------------------------ |
-| OpenAPI schema (`utoipa::ToSchema`)  | 🟢 `FULLY_FUNCTIONAL`       | `derive(utoipa::ToSchema)` on `CapturedEvent` and `SpanContext` behind `openapi` feature (`src/capture.rs:13`); tested `captured_event_openapi_schema_contains_all_fields`, `span_context_openapi_schema_contains_all_fields` |
+| OpenAPI schema (`utoipa::ToSchema`)  | 🟢 `FULLY_FUNCTIONAL`       | `derive(utoipa::ToSchema)` on `CapturedEvent`, `SpanContext`, and `FlightRecorderDump` behind `openapi` feature; `rc_schema` makes `Arc` fields transparent (`src/capture.rs`); tested `captured_event_openapi_schema_contains_all_fields`, `span_context_openapi_schema_contains_all_fields`, `flight_recorder_dump_openapi_schema_contains_all_fields` |
 
 ---
 

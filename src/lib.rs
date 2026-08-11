@@ -74,13 +74,15 @@
 
 mod capture;
 mod layer;
+mod trigger;
 
 #[cfg(doctest)]
 #[doc = include_str!("../README.md")]
 struct _ReadmeDoctests;
 
-pub use capture::{CapturedEvent, SpanContext};
+pub use capture::{CapturedEvent, FlightRecorderDump, SpanContext, DUMP_SCHEMA_VERSION};
 pub use layer::{FlightRecorder, FlightRecorderLayer};
+pub use trigger::{LevelTrigger, OnceTrigger, Trigger};
 
 /// Default ring-buffer capacity (number of events).
 ///

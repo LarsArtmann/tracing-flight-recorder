@@ -4,6 +4,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::fmt::Write as _;
+use std::sync::Arc;
 use tracing::field::{Field, Visit};
 use tracing::{Event, Level};
 
@@ -43,7 +44,47 @@ pub struct SpanContext {
     /// The span name (the first argument to `info_span!`, `debug_span!`, etc.).
     pub name: String,
     /// Key-value fields recorded on the span (sensitive fields redacted).
-    pub fields: Vec<(String, String)>,
+    ///
+    /// Wrapped in `Arc` so that all events fired inside the same span share one
+    /// allocation — cloning a span context into an event is an O(1) reference
+    /// bump instead of an O(fields) deep copy. Serializes as a plain JSON array
+    /// via serde's `rc` feature.
+    pub fields: Arc<Vec<(String, String)>>,
+}
+
+/// Current [`FlightRecorderDump`] envelope schema version.
+///
+/// Bumped only on a breaking structural change to the envelope so consumers can
+/// branch on a stable integer instead of guessing from field presence.
+pub const DUMP_SCHEMA_VERSION: u32 = 1;
+
+/// A complete flight-recorder dump: diagnostic metadata + the captured events.
+///
+/// Wraps the raw event array with context about *when* and *why* the snapshot
+/// was taken, plus the crate version that produced it. This is the recommended
+/// output for incident snapshots — it is self-describing and survives being
+/// detached from the running process.
+///
+/// Produced by [`FlightRecorder::dump_envelope`](crate::FlightRecorder::dump_envelope)
+/// and its file/retention convenience variants. Existing array-only dump methods
+/// (`dump_to_json`, `dump_to_file`, …) remain unchanged for backward
+/// compatibility.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct FlightRecorderDump {
+    /// Envelope schema version (currently [`DUMP_SCHEMA_VERSION`]).
+    pub schema_version: u32,
+    /// When the dump was captured (UTC).
+    pub captured_at: chrono::DateTime<chrono::Utc>,
+    /// Version of `tracing-flight-recorder` that produced this dump.
+    pub crate_version: Cow<'static, str>,
+    /// Number of events in the `events` field (convenience duplicate of
+    /// `events.len()`, present so it is visible without expanding the array).
+    pub event_count: usize,
+    /// Human-readable reason the dump was triggered (`None` for manual dumps).
+    pub trigger_reason: Option<Cow<'static, str>>,
+    /// The captured events, oldest-first.
+    pub events: Vec<CapturedEvent>,
 }
 
 impl CapturedEvent {
@@ -286,5 +327,27 @@ mod tests {
         assert!(json.contains("SpanContext"), "schema name must appear");
         assert!(json.contains("name"), "name field must appear");
         assert!(json.contains("fields"), "fields must appear in SpanContext");
+    }
+
+    #[cfg(feature = "openapi")]
+    #[test]
+    fn flight_recorder_dump_openapi_schema_contains_all_fields() {
+        use utoipa::OpenApi;
+
+        #[derive(OpenApi)]
+        #[openapi(components(schemas(FlightRecorderDump)))]
+        struct ApiDoc;
+
+        let json = ApiDoc::openapi().to_pretty_json().unwrap();
+        assert!(
+            json.contains("FlightRecorderDump"),
+            "schema name must appear"
+        );
+        assert!(json.contains("schema_version"));
+        assert!(json.contains("captured_at"));
+        assert!(json.contains("crate_version"));
+        assert!(json.contains("event_count"));
+        assert!(json.contains("trigger_reason"));
+        assert!(json.contains("events"));
     }
 }

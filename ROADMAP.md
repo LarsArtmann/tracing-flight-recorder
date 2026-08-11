@@ -33,7 +33,6 @@ Raw ideas:
 - Zero-copy snapshot handle (iterator over the buffer) instead of cloning into a `Vec`
 - Optional async channel + background writer so `on_event` never serializes
 - Profile allocation count with `cargo-dhat` to verify hot-path improvements
-- Fix memory footprint test to use proper allocator tracking instead of `size_of` + length summation
 
 ### 3. Output formats
 
@@ -46,22 +45,18 @@ Raw ideas:
 - OpenTelemetry export for cross-correlation
 - Human-readable pretty-text dump for incident chat paste
 - Compression option (`flate2` behind a feature flag)
-- Dump metadata envelope (timestamp, event count, crate version, trigger reason)
 
 ### 4. Framework ergonomics
 
-Span context capture ships as always-on. Manual `dump_to_file` on error still
-requires the caller to wire every failure path. Explore integrations and
-configuration.
+Span context capture is configurable (`with_span_capture`). The trigger system
+provides automatic snapshot-on-failure. Manual `dump_to_file` on error still
+requires the caller to wire every failure path — explore deeper integrations.
 
 Raw ideas:
 
-- Configurable span context capture (builder option to disable for throughput)
-- `Arc<Vec<...>>` for span field extensions — O(1) clone per event (requires serde `rc` feature)
 - `tower` middleware that dumps the buffer on `Response` error status
 - `axum` extractor / `on_response` hook for automatic incident capture
 - Panic-hook integration that dumps before the process exits
-- Trigger system: `Trigger` trait, `dump_if(trigger, ctx, path)`, once-semantics
 - Observability hooks: `on_dump` callback with `DumpEvent` (duration, bytes, path)
 - Async/non-blocking capture: background dump thread, drain on shutdown
 - `FlightRecorderBuilder`: capacity, span capture toggle, redaction patterns, output format
@@ -97,9 +92,10 @@ Things we are deliberately NOT pursuing and why:
   ephemeral and bounded. Long-term retention belongs in a real log collector.
 - **GUI viewer:** Snapshots are JSON files for external tooling; a built-in
   viewer would broaden scope beyond this crate.
-- **Configurable span context capture:** Span capture is always-on. Making it
-  opt-out via a builder is planned but not yet implemented. High-throughput
-  users who don't need span context pay the walk cost with no way to disable it.
+- **Configurable span context capture:** ~~Span capture is always-on.~~ Now
+  configurable via `FlightRecorderLayer::with_span_capture`. Remaining gap: a
+  full `FlightRecorderBuilder` unifying capacity, span capture, redaction
+  patterns, and output format.
 
 ---
 

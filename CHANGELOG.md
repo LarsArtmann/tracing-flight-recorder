@@ -21,12 +21,18 @@ _No changes yet._
 - **Expanded redaction patterns** — added `authorization`, `auth`, `bearer`, `cookie`, `session_id`, `access_code` to the sensitive-field pattern list (14 total patterns, case-insensitive substring match) (`src/capture.rs`)
 - **`examples/span_context.rs`** — runnable example demonstrating span context capture with nested spans (`examples/`)
 - **README "Span Context Capture" section** with code example showing nested spans and the resulting `spans` field
+- **Trigger system** — automatic snapshot-on-failure via the `Trigger` trait, `LevelTrigger` (fires at/above a severity), and `OnceTrigger` (fires at most once until `reset`). Wire one in with `FlightRecorderLayer::with_dump_on(trigger, dir, prefix, max_files)`; when the trigger fires the buffer is written automatically as an envelope with the trigger's name as `trigger_reason`. This is the central value proposition of a flight recorder: zero I/O until something goes wrong, then a self-describing snapshot is persisted with no caller wiring (`src/trigger.rs`, `src/layer.rs`)
+- **Dump metadata envelope** — `FlightRecorderDump` struct wrapping events with `schema_version`, `captured_at`, `crate_version`, `event_count`, and `trigger_reason`. Available via `dump_envelope`, `dump_envelope_to_json`, `dump_envelope_to_file`, and `dump_with_retention_envelope`. Existing array-only dump methods are unchanged for backward compatibility (`src/capture.rs`, `src/layer.rs`)
+- **`DUMP_SCHEMA_VERSION`** constant (currently `1`) so envelope consumers can branch on a stable integer (`src/capture.rs`)
+- **Configurable span context capture** — `FlightRecorderLayer::with_span_capture(recorder, bool)` disables span field storage and per-event scope walking for high-throughput pipelines that don't need request context. `new()` defaults to capture-on as before (`src/layer.rs`)
+- **`Arc<Vec<…>>` span field sharing** — `SpanContext.fields` is now `Arc<Vec<(String, String)>>`, so all events inside the same span share one allocation (O(1) reference bump per event instead of an O(fields) deep copy). Updates via `span.record()` use clone-on-write so already-captured events keep their original field snapshot. Enabled by serde's `rc` feature and utoipa's `rc_schema` feature; serializes as a plain JSON array (`src/capture.rs`, `src/layer.rs`)
 
 ### Changed
 
 - **BREAKING: `CapturedEvent` has a new required field** — `spans: Vec<SpanContext>`. Code that constructs `CapturedEvent` manually must add `spans: Vec::new()` (or populate it). Events captured through the layer are populated automatically
 - **BREAKING: `FlightRecorderLayer` now requires `S: Subscriber + for<'lookup> LookupSpan<'lookup>`** — the `Layer` impl bound was tightened to enable span context capture. Subscribers built via `tracing_subscriber::registry()` already implement `LookupSpan`, so most users are unaffected
 - **BREAKING: `CapturedEvent.level` is now `Cow<'static, str>`** instead of `String` — eliminates one heap allocation per event since the 5 known `tracing::Level` variants are stored as `Cow::Borrowed` (zero-copy). Serializes and deserializes identically
+- **BREAKING: `SpanContext.fields` is now `Arc<Vec<(String, String)>>`** instead of `Vec<(String, String)>` — serializes identically (serde `rc`) and auto-derefs to `Vec`/slice, so most reads (`.iter()`, `.len()`, `.is_empty()`) compile unchanged. Code that moves the `Vec` out of the field must add `.as_ref()` or dereference
 - **`push` is now `pub(crate)`** — prevents external callers from injecting synthetic events into the diagnostic record
 - **`FieldVisitor` removed from public re-exports** — it remains `pub` in the private `capture` module (crate-internal) but is no longer part of the public API surface
 - **Zero-allocation redaction matching** — `is_sensitive_field` now uses byte-level `windows()` + `eq_ignore_ascii_case` instead of `to_lowercase()`, eliminating one heap allocation per field name per event
@@ -34,6 +40,7 @@ _No changes yet._
 - **`REDACTED` constant** — extracted `"[REDACTED]"` literal to `const REDACTED: &str` for clarity
 - **`max_files = 0` means unlimited** — `dump_with_retention(_, _, 0)` no longer deletes its own dump. Matches the Go sibling project's convention
 - README dependency claim corrected: "Zero non-tracing dependencies" → "Minimal dependencies — tracing ecosystem + serde/chrono for serialization"
+- Memory footprint test now measures true deep size (every `String`/`Vec` **capacity**, not just `len()`), revealing the 1000-event buffer is ~385 KB (previously reported ~237 KB — a 62% undercount)
 
 ### Fixed
 

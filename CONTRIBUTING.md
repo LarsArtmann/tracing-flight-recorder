@@ -19,7 +19,7 @@ philosophy.
 ## Development Setup
 
 ```sh
-cargo test --all-features          # canonical test gate (45 unit + 5 doctests)
+cargo test --all-features          # canonical test gate (64 unit + 6 doctests)
 cargo clippy --all-features --all-targets -- -D warnings
 cargo fmt --check
 cargo doc --all-features --no-deps
@@ -38,6 +38,7 @@ FlightRecorderLayer::on_new_span() / on_record()
 FlightRecorderLayer::on_event()
     │
     ├── capture_span_context()    ← walks scope.from_root(), builds Vec<SpanContext>
+    │                               (fields shared via Arc<Vec>, O(1) clone)
     ├── CapturedEvent::from_event()
     │   ├── FieldVisitor::record_*()  ← collects key-value fields
     │   ├── is_sensitive_field()      ← redacts secrets → [REDACTED]
@@ -50,8 +51,12 @@ FlightRecorder::push()
     └── push_back
     │
     ▼
+Trigger check → fire_dump() (if attached)   ← automatic snapshot on failure
+    │
+    ▼
 FlightRecorder::snapshot() / dump_to_json() / dump_to_json_lines() /
-dump_to_writer() / dump_to_writer_lines() / dump_to_file() / dump_with_retention()
+dump_to_writer() / dump_to_writer_lines() / dump_to_file() / dump_with_retention() /
+dump_envelope_to_file() / dump_with_retention_envelope()
 ```
 
 ## Pull Request Checklist

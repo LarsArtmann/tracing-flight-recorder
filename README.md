@@ -22,8 +22,11 @@ The recorder pays zero I/O cost until a snapshot is triggered.
 - **`tracing_subscriber::Layer`** — drops into any existing tracing setup
 - **Per-layer filtering** — capture DEBUG/TRACE while console stays at INFO
 - **Span context capture** — events record their full span hierarchy (names + fields, root-first)
+- **Configurable span capture** — disable span storage for max throughput via `with_span_capture(recorder, false)`
+- **Automatic snapshots on failure** — `Trigger` trait + `LevelTrigger`/`OnceTrigger` dump the buffer automatically when an error fires, no manual wiring
 - **Secret redaction** — fields named `token`, `password`, `secret`, `authorization`, `cookie`, `session_id`, etc. are automatically redacted to `[REDACTED]`
 - **JSON snapshots** — `dump_to_json()`, `dump_to_file()`, `dump_to_writer()`, `dump_with_retention()`
+- **Dump metadata envelope** — `FlightRecorderDump` wraps events with schema version, timestamp, event count, crate version, and trigger reason
 - **NDJSON output** — `dump_to_json_lines()` and `dump_to_writer_lines()` for streamable, line-delimited JSON ingestible by log pipelines
 - **Optional OpenAPI** — `utoipa::ToSchema` derive behind the `openapi` feature flag
 - **Minimal dependencies** — `tracing` ecosystem + `serde`/`chrono` for serialization
@@ -113,9 +116,75 @@ tracing::warn!("slow query");  // spans: [http_request, db_query]
 // ]
 ```
 
+## Automatic Snapshots on Failure
+
+The whole point of a flight recorder is to capture the buffer _when something
+goes wrong_ — without wiring a `dump` call into every error path. Attach a
+[`Trigger`](https://docs.rs/tracing-flight-recorder/latest/tracing_flight_recorder/trait.Trigger.html)
+to the layer and it dumps automatically:
+
+```rust,no_run
+use tracing_flight_recorder::{
+    FlightRecorder, FlightRecorderLayer, LevelTrigger, OnceTrigger,
+};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::Layer;
+
+let recorder = FlightRecorder::new(1000);
+let fr_filter = tracing_subscriber::EnvFilter::new("my_app=debug,warn");
+
+// Dump exactly once — the first time an ERROR fires — to ./diagnostics,
+// keeping at most 10 snapshot envelopes.
+tracing_subscriber::registry()
+    .with(
+        FlightRecorderLayer::new(recorder.clone())
+            // with_dump_on before with_filter: with_filter wraps the layer
+            .with_dump_on(
+                OnceTrigger::new(LevelTrigger::error()),
+                "./diagnostics",
+                "incident",
+                10,
+            )
+            .with_filter(fr_filter),
+    )
+    .init();
+
+// When this fires, ./diagnostics/incident-<timestamp>.json is written
+// automatically — a self-describing envelope with the trigger reason,
+// event count, crate version, and the full buffered history.
+tracing::error!("connection lost");
+```
+
+Built-in triggers:
+
+- **`LevelTrigger`** — fires at or above a severity (`LevelTrigger::error()`, `LevelTrigger::new(Level::WARN)`)
+- **`OnceTrigger`** — wraps any trigger; fires at most once until `reset()`, preventing disk-filling cascades
+
+Implement the `Trigger` trait for custom conditions (e.g. "dump on a specific
+error code field").
+
+## Dump Metadata Envelope
+
+For self-describing incident snapshots, use the `FlightRecorderDump` envelope
+(events + metadata) instead of a bare event array:
+
+```rust,no_run
+use tracing_flight_recorder::FlightRecorder;
+
+let recorder = FlightRecorder::new(1000);
+// ... events accumulate ...
+
+// Writes { schema_version, captured_at, crate_version, event_count,
+//         trigger_reason, events: [...] }
+recorder
+    .dump_envelope_to_file(std::path::Path::new("incident.json"), Some("manual"))
+    .ok();
+```
+
 ## OpenAPI Support
 
-Enable the `openapi` feature to derive `utoipa::ToSchema` on `CapturedEvent`:
+Enable the `openapi` feature to derive `utoipa::ToSchema` on `CapturedEvent`, `SpanContext`, and `FlightRecorderDump`:
 
 ```toml
 [dependencies]

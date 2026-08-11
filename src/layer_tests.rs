@@ -13,6 +13,64 @@ fn make_event(msg: &str) -> CapturedEvent {
     }
 }
 
+/// Approximate total heap+stack size of a `CapturedEvent`, accounting for the
+/// actual allocated **capacity** of every `String`/`Vec` rather than just
+/// `.len()`.
+///
+/// This is far more accurate than summing `size_of` + `len()`, which ignores
+/// allocator capacity rounding (strings often reserve ~2× their length). The
+/// only thing it cannot see is the global allocator's per-allocation alignment
+/// padding, so the true figure may be a few percent higher still.
+fn deep_size_of_captured_event(e: &CapturedEvent) -> usize {
+    use std::mem::size_of;
+
+    // Stack footprint of the struct itself (Cow discriminant, Vec bookkeeping,
+    // DateTime, etc.).
+    let stack = size_of::<CapturedEvent>();
+
+    // `level` heap: only `Owned` variants allocate; `Borrowed` is zero-copy.
+    let level_heap = match &e.level {
+        std::borrow::Cow::Borrowed(_) => 0,
+        std::borrow::Cow::Owned(s) => s.capacity(),
+    };
+    let target_heap = e.target.capacity();
+    let message_heap = e.message.capacity();
+
+    // fields: Vec<(String, String)> — element buffer + each inner String heap.
+    let fields_buf = e.fields.capacity() * size_of::<(String, String)>();
+    let fields_strings: usize = e
+        .fields
+        .iter()
+        .map(|(k, v)| k.capacity() + v.capacity())
+        .sum();
+
+    // spans: Vec<SpanContext> — element buffer + each span's name + its fields.
+    let spans_buf = e.spans.capacity() * size_of::<SpanContext>();
+    let spans_inner: usize = e
+        .spans
+        .iter()
+        .map(|s| {
+            let name = s.name.capacity();
+            let buf = s.fields.capacity() * size_of::<(String, String)>();
+            let strings: usize = s
+                .fields
+                .iter()
+                .map(|(k, v)| k.capacity() + v.capacity())
+                .sum();
+            name + buf + strings
+        })
+        .sum();
+
+    stack
+        + level_heap
+        + target_heap
+        + message_heap
+        + fields_buf
+        + fields_strings
+        + spans_buf
+        + spans_inner
+}
+
 #[test]
 fn ring_buffer_evicts_oldest_at_capacity() {
     let recorder = FlightRecorder::new(3);
@@ -296,7 +354,6 @@ fn flight_recorder_sees_events_blocked_by_other_layer_filter() {
     // no filter — it must still capture the DEBUG event.
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::Layer;
-
     let recorder = FlightRecorder::new(100);
     let fr_layer = FlightRecorderLayer::new(recorder.clone());
     let fmt_filter = tracing_subscriber::EnvFilter::new("info");
@@ -635,25 +692,13 @@ fn memory_footprint_of_default_capacity_buffer() {
     }
 
     let snap = recorder.snapshot();
-    let total_bytes: usize = snap
-        .iter()
-        .map(|e| {
-            std::mem::size_of_val(&e.timestamp)
-                + e.level.len()
-                + e.target.len()
-                + e.message.len()
-                + e.fields
-                    .iter()
-                    .map(|(k, v)| k.len() + v.len())
-                    .sum::<usize>()
-                + std::mem::size_of::<CapturedEvent>()
-        })
-        .sum();
+    let total_bytes: usize = snap.iter().map(deep_size_of_captured_event).sum();
 
     println!(
-        "1000-event buffer: ~{} bytes ({:.1} KB) — README claims ~200-500 KB",
+        "1000-event buffer (deep size, incl. capacity rounding): ~{} bytes ({:.1} KB), ~{:.0} bytes/event — README claims ~200-500 KB",
         total_bytes,
-        total_bytes as f64 / 1024.0
+        total_bytes as f64 / 1024.0,
+        total_bytes as f64 / DEFAULT_CAPACITY as f64
     );
 
     // With realistic events (~100-200 bytes each), 1000 events = ~200-500 KB.
@@ -1004,7 +1049,6 @@ fn dump_to_writer_lines_empty_buffer_writes_nothing() {
 fn span_context_captured_with_per_layer_filter() {
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::Layer;
-
     let recorder = FlightRecorder::new(100);
     let fr_filter = tracing_subscriber::EnvFilter::new("my_app=debug");
 
@@ -1063,4 +1107,330 @@ fn span_with_no_fields_produces_empty_fields_vec() {
         snap[0].spans[0].fields.is_empty(),
         "span with no fields should have empty fields vec"
     );
+}
+
+// ── Configurable span context capture ────────────────────────────────
+
+#[test]
+fn span_capture_disabled_produces_empty_spans() {
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let recorder = FlightRecorder::new(100);
+    let layer = FlightRecorderLayer::with_span_capture(recorder.clone(), false);
+
+    let subscriber = tracing_subscriber::registry().with(layer);
+
+    tracing::subscriber::with_default(subscriber, || {
+        let span = tracing::info_span!("http_request", method = "GET", path = "/api");
+        let _enter = span.enter();
+        tracing::error!("something failed");
+    });
+
+    let snap = recorder.snapshot();
+    assert_eq!(snap.len(), 1, "event must still be captured");
+    assert_eq!(snap[0].message, "something failed");
+    assert!(
+        snap[0].spans.is_empty(),
+        "span capture disabled: spans vec must be empty"
+    );
+}
+
+#[test]
+fn span_capture_enabled_is_the_default() {
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let recorder = FlightRecorder::new(100);
+    // new() must default to capturing spans.
+    let layer = FlightRecorderLayer::new(recorder.clone());
+
+    let subscriber = tracing_subscriber::registry().with(layer);
+
+    tracing::subscriber::with_default(subscriber, || {
+        let span = tracing::info_span!("outer", id = "x");
+        let _enter = span.enter();
+        tracing::warn!("triggered");
+    });
+
+    let snap = recorder.snapshot();
+    assert_eq!(snap.len(), 1);
+    assert_eq!(snap[0].spans.len(), 1, "new() defaults to span capture ON");
+    assert_eq!(snap[0].spans[0].name, "outer");
+}
+
+// ── Dump metadata envelope tests ─────────────────────────────────────
+
+#[test]
+fn dump_envelope_to_file_writes_metadata_and_events() {
+    let recorder = FlightRecorder::new(100);
+    recorder.push(make_event("envelope-event-1"));
+    recorder.push(make_event("envelope-event-2"));
+
+    let dir = tempfile_dir();
+    let path = dir.join("envelope.json");
+    recorder
+        .dump_envelope_to_file(&path, Some("test_reason"))
+        .unwrap();
+
+    let contents = std::fs::read_to_string(&path).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&contents).unwrap();
+
+    // Envelope is an object, not a bare event array.
+    assert!(
+        parsed.is_object(),
+        "envelope must be a JSON object, not an array"
+    );
+    assert_eq!(parsed["schema_version"], 1);
+    assert_eq!(parsed["event_count"], 2);
+    assert_eq!(parsed["trigger_reason"], "test_reason");
+    assert!(
+        parsed["crate_version"].is_string(),
+        "crate_version must be present"
+    );
+    assert!(
+        parsed["captured_at"].is_string(),
+        "captured_at must be present"
+    );
+    assert_eq!(
+        parsed["events"].as_array().map_or(0, Vec::len),
+        2,
+        "events array must contain both events"
+    );
+}
+
+#[test]
+fn dump_envelope_to_json_manual_dump_has_null_reason() {
+    let recorder = FlightRecorder::new(100);
+    recorder.push(make_event("solo"));
+    let json = recorder.dump_envelope_to_json(None).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert!(
+        parsed["trigger_reason"].is_null(),
+        "manual dump must have null trigger_reason"
+    );
+    assert_eq!(parsed["event_count"], 1);
+}
+
+#[test]
+fn dump_envelope_round_trips_through_json() {
+    let recorder = FlightRecorder::new(100);
+    recorder.push(make_event("rt-1"));
+    let json = recorder.dump_envelope_to_json(Some("roundtrip")).unwrap();
+    let parsed: FlightRecorderDump =
+        serde_json::from_str(&json).expect("envelope must deserialize back");
+    assert_eq!(parsed.schema_version, DUMP_SCHEMA_VERSION);
+    assert_eq!(parsed.event_count, 1);
+    assert_eq!(parsed.trigger_reason.as_deref(), Some("roundtrip"));
+    assert_eq!(parsed.events[0].message, "rt-1");
+}
+
+#[test]
+fn dump_with_retention_envelope_writes_envelope_format() {
+    let recorder = FlightRecorder::new(100);
+    recorder.push(make_event("retention-envelope"));
+
+    let dir = tempfile_dir();
+    let path = recorder
+        .dump_with_retention_envelope(&dir, "env", 5, Some("crash"))
+        .unwrap();
+
+    assert!(path.exists());
+    let contents = std::fs::read_to_string(&path).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&contents).unwrap();
+    assert!(parsed.is_object(), "retention envelope must be an object");
+    assert_eq!(parsed["trigger_reason"], "crash");
+    assert_eq!(parsed["schema_version"], 1);
+}
+
+// ── Trigger system integration tests ─────────────────────────────────
+
+fn count_files_matching(dir: &std::path::Path, prefix: &str) -> usize {
+    std::fs::read_dir(dir)
+        .unwrap()
+        .filter_map(std::result::Result::ok)
+        .filter(|e| {
+            e.file_name()
+                .to_str()
+                .is_some_and(|n| n.starts_with(prefix))
+        })
+        .count()
+}
+
+#[test]
+fn trigger_dumps_automatically_on_error() {
+    use crate::LevelTrigger;
+    use tracing_subscriber::layer::SubscriberExt;
+    let dir = tempfile_dir();
+    let recorder = FlightRecorder::new(100);
+    let layer = FlightRecorderLayer::new(recorder.clone()).with_dump_on(
+        LevelTrigger::error(),
+        dir.clone(),
+        "incident",
+        10,
+    );
+
+    let subscriber = tracing_subscriber::registry().with(layer);
+
+    tracing::subscriber::with_default(subscriber, || {
+        tracing::info!("harmless info");
+        tracing::error!("something exploded");
+    });
+
+    assert_eq!(
+        count_files_matching(&dir, "incident"),
+        1,
+        "exactly one trigger dump expected on ERROR"
+    );
+
+    // The buffer retains both events (info + error).
+    assert_eq!(recorder.snapshot().len(), 2);
+}
+
+#[test]
+fn trigger_dump_envelope_carries_reason_and_events() {
+    use crate::LevelTrigger;
+    use tracing_subscriber::layer::SubscriberExt;
+    let dir = tempfile_dir();
+    let recorder = FlightRecorder::new(100);
+    let layer = FlightRecorderLayer::new(recorder.clone()).with_dump_on(
+        LevelTrigger::error(),
+        dir.clone(),
+        "snap",
+        10,
+    );
+
+    let subscriber = tracing_subscriber::registry().with(layer);
+
+    tracing::subscriber::with_default(subscriber, || {
+        tracing::warn!("warning before");
+        tracing::error!("the trigger");
+    });
+
+    let dump_path = std::fs::read_dir(&dir)
+        .unwrap()
+        .find_map(std::result::Result::ok)
+        .expect("a dump file must exist");
+    let contents = std::fs::read_to_string(dump_path.path()).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&contents).unwrap();
+
+    assert!(
+        parsed.is_object(),
+        "trigger dump must be an envelope object"
+    );
+    assert_eq!(parsed["trigger_reason"], "level>=ERROR");
+    assert_eq!(
+        parsed["event_count"], 2,
+        "both events must be in the snapshot"
+    );
+    assert_eq!(parsed["schema_version"], 1);
+}
+
+#[test]
+fn once_trigger_dumps_only_once_across_multiple_errors() {
+    use crate::{LevelTrigger, OnceTrigger};
+    use tracing_subscriber::layer::SubscriberExt;
+    let dir = tempfile_dir();
+    let recorder = FlightRecorder::new(100);
+    let layer = FlightRecorderLayer::new(recorder.clone()).with_dump_on(
+        OnceTrigger::new(LevelTrigger::error()),
+        dir.clone(),
+        "once",
+        10,
+    );
+
+    let subscriber = tracing_subscriber::registry().with(layer);
+
+    tracing::subscriber::with_default(subscriber, || {
+        tracing::error!("first explosion");
+        tracing::error!("second explosion");
+        tracing::error!("third explosion");
+    });
+
+    assert_eq!(
+        count_files_matching(&dir, "once"),
+        1,
+        "OnceTrigger must produce exactly one dump despite three errors"
+    );
+}
+
+#[test]
+fn layer_without_trigger_creates_no_dump_files() {
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let dir = tempfile_dir();
+    let recorder = FlightRecorder::new(100);
+    let layer = FlightRecorderLayer::new(recorder.clone());
+
+    let subscriber = tracing_subscriber::registry().with(layer);
+
+    tracing::subscriber::with_default(subscriber, || {
+        tracing::error!("no trigger attached");
+    });
+
+    assert_eq!(
+        count_files_matching(&dir, ""),
+        0,
+        "no dump files without a trigger"
+    );
+}
+
+// ── Arc span-field sharing ───────────────────────────────────────────
+
+#[test]
+fn events_in_same_span_share_span_fields_allocation() {
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let recorder = FlightRecorder::new(100);
+    let layer = FlightRecorderLayer::new(recorder.clone());
+
+    let subscriber = tracing_subscriber::registry().with(layer);
+
+    tracing::subscriber::with_default(subscriber, || {
+        let span = tracing::info_span!("shared", request_id = "req-1");
+        let _enter = span.enter();
+        tracing::warn!("first event");
+        tracing::warn!("second event");
+    });
+
+    let snap = recorder.snapshot();
+    assert_eq!(snap.len(), 2);
+    assert_eq!(snap[0].spans.len(), 1);
+    assert_eq!(snap[1].spans.len(), 1);
+    assert!(
+        std::sync::Arc::ptr_eq(&snap[0].spans[0].fields, &snap[1].spans[0].fields),
+        "events in the same span must share the span-fields Arc (O(1) clone)"
+    );
+}
+
+#[test]
+fn span_fields_updated_via_record_do_not_mutate_already_captured_events() {
+    use tracing_subscriber::layer::SubscriberExt;
+
+    // clone-on-write: recording a new field after an event fired must not
+    // retroactively change the already-captured event's span fields.
+    let recorder = FlightRecorder::new(100);
+    let layer = FlightRecorderLayer::new(recorder.clone());
+    let subscriber = tracing_subscriber::registry().with(layer);
+
+    tracing::subscriber::with_default(subscriber, || {
+        let span = tracing::info_span!("cow", a = "1", b = tracing::field::Empty);
+        let _enter = span.enter();
+        tracing::warn!("before record");
+        span.record("b", "2");
+        tracing::warn!("after record");
+    });
+
+    let snap = recorder.snapshot();
+    assert_eq!(snap.len(), 2);
+    let before = &snap[0].spans[0].fields;
+    let after = &snap[1].spans[0].fields;
+    // Different allocations (clone-on-write split).
+    assert!(
+        !std::sync::Arc::ptr_eq(before, after),
+        "clone-on-write: updated span fields must not alias the pre-update Arc"
+    );
+    // The pre-record event sees only {a}, the post-record event sees {a, b}.
+    let before_keys: Vec<&str> = before.iter().map(|(k, _)| k.as_str()).collect();
+    let after_keys: Vec<&str> = after.iter().map(|(k, _)| k.as_str()).collect();
+    assert_eq!(before_keys, vec!["a"]);
+    assert_eq!(after_keys, vec!["a", "b"]);
 }

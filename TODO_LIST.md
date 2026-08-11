@@ -15,13 +15,9 @@
 
 ## High Impact
 
-| Task | Status | Effort | Notes |
-|------|--------|--------|-------|
-| Configurable span context capture (builder option to disable) | 🔴 `TODO` | ~2h | Span capture is always-on with no opt-out. Add `FlightRecorderLayer::new_without_spans()` or a builder pattern. See ROADMAP theme 4. |
-| `Arc<Vec<...>>` for span field extensions | 🔴 `TODO` | ~1h | O(1) clone per event instead of O(n fields). **Blocked by**: requires serde `rc` feature + utoipa `ToSchema` workaround for `Arc` types. See ROADMAP theme 4. |
-| Trigger system + once-semantics | 🔴 `TODO` | ~4h | `Trigger` trait, `dump_if(trigger, ctx, path)`, `AtomicBool` flag for `dump_once` + `reset`. v0.3.0 scope. |
-| Dump metadata envelope | 🔴 `TODO` | ~2h | Wrap dump output with timestamp, event count, crate version, trigger reason. |
-| Fix memory footprint test accuracy | 🔴 `TODO` | ~1h | Current test sums `size_of` + string lengths, undercounting by 30-50% due to `String`/`Vec` capacity rounding. Use a proper allocator tracker. |
+_All high-impact items shipped in v0.2.0_ — configurable span capture, `Arc`-shared
+span fields, trigger system + once-semantics, dump metadata envelope, and the
+memory-footprint test accuracy fix. See `CHANGELOG.md` for details.
 
 ## Medium Impact
 

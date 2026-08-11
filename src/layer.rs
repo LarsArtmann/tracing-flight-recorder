@@ -1,7 +1,11 @@
 //! Ring-buffer flight recorder and `tracing_subscriber::Layer` implementation.
 
-use crate::capture::{CapturedEvent, FieldVisitor, SpanContext};
+use crate::capture::{
+    CapturedEvent, FieldVisitor, FlightRecorderDump, SpanContext, DUMP_SCHEMA_VERSION,
+};
+use crate::trigger::Trigger;
 use crate::DEFAULT_CAPACITY;
+use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -132,14 +136,50 @@ impl FlightRecorder {
     /// Returns `io::Error` if JSON serialization, directory creation, or file writing fails.
     pub fn dump_to_file(&self, path: &Path) -> std::io::Result<()> {
         let json = self.dump_to_json().map_err(std::io::Error::other)?;
+        write_json_file(path, &json)
+    }
 
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)?;
-            }
+    /// Build a [`FlightRecorderDump`] envelope around the current buffer.
+    ///
+    /// The envelope carries diagnostic metadata (capture timestamp, event
+    /// count, crate version, optional trigger reason) alongside the events.
+    /// Pass `reason` to record why the dump was taken (e.g. `"error_level"`);
+    /// pass `None` for a manual snapshot.
+    #[must_use]
+    pub fn dump_envelope(&self, reason: Option<&str>) -> FlightRecorderDump {
+        let events = self.snapshot();
+        let event_count = events.len();
+        FlightRecorderDump {
+            schema_version: DUMP_SCHEMA_VERSION,
+            captured_at: chrono::Utc::now(),
+            crate_version: Cow::Borrowed(env!("CARGO_PKG_VERSION")),
+            event_count,
+            trigger_reason: reason.map(|r| Cow::Owned(r.to_string())),
+            events,
         }
+    }
 
-        std::fs::write(path, json)
+    /// Serialize the buffer as a [`FlightRecorderDump`] envelope to a JSON string.
+    ///
+    /// # Errors
+    ///
+    /// Returns `serde_json::Error` if serialization fails.
+    pub fn dump_envelope_to_json(&self, reason: Option<&str>) -> serde_json::Result<String> {
+        serde_json::to_string_pretty(&self.dump_envelope(reason))
+    }
+
+    /// Write the buffer as a [`FlightRecorderDump`] envelope (pretty JSON) to a file.
+    ///
+    /// Creates parent directories if they don't exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns `io::Error` if serialization, directory creation, or writing fails.
+    pub fn dump_envelope_to_file(&self, path: &Path, reason: Option<&str>) -> std::io::Result<()> {
+        let json = self
+            .dump_envelope_to_json(reason)
+            .map_err(std::io::Error::other)?;
+        write_json_file(path, &json)
     }
 
     /// Number of events currently in the buffer.
@@ -196,14 +236,33 @@ impl FlightRecorder {
         prefix: &str,
         max_files: usize,
     ) -> std::io::Result<PathBuf> {
-        std::fs::create_dir_all(dir)?;
-
-        let ts = chrono::Utc::now().format("%Y%m%dT%H%M%S");
-        let base = format!("{prefix}-{ts}");
-
-        let path = resolve_collision_path(dir, &base, COLLISION_LIMIT)?;
+        let path = prepare_retention_path(dir, prefix)?;
 
         self.dump_to_file(&path)?;
+
+        cleanup_old_snapshots(dir, prefix, max_files);
+
+        Ok(path)
+    }
+
+    /// Like [`dump_with_retention`](Self::dump_with_retention) but writes a
+    /// [`FlightRecorderDump`] envelope (events + metadata) instead of a bare
+    /// event array. The `reason` is recorded as the dump's `trigger_reason`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `io::Error` if serialization, directory creation, or writing fails.
+    /// Retention cleanup errors are logged and ignored (best-effort).
+    pub fn dump_with_retention_envelope(
+        &self,
+        dir: &Path,
+        prefix: &str,
+        max_files: usize,
+        reason: Option<&str>,
+    ) -> std::io::Result<PathBuf> {
+        let path = prepare_retention_path(dir, prefix)?;
+
+        self.dump_envelope_to_file(&path, reason)?;
 
         cleanup_old_snapshots(dir, prefix, max_files);
 
@@ -213,6 +272,25 @@ impl FlightRecorder {
 
 /// Upper bound on same-second collision counter suffixes.
 const COLLISION_LIMIT: u32 = 9999;
+
+/// Write a JSON string to `path`, creating parent directories first.
+fn write_json_file(path: &Path, json: &str) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    std::fs::write(path, json)
+}
+
+/// Create `dir` and resolve a non-colliding timestamped path
+/// `{prefix}-{YYYYmmddT-HHMMSS}.json` inside it.
+fn prepare_retention_path(dir: &Path, prefix: &str) -> std::io::Result<PathBuf> {
+    std::fs::create_dir_all(dir)?;
+    let ts = chrono::Utc::now().format("%Y%m%dT%H%M%S");
+    let base = format!("{prefix}-{ts}");
+    resolve_collision_path(dir, &base, COLLISION_LIMIT)
+}
 
 /// Resolve a unique file path for a timestamped snapshot.
 ///
@@ -300,19 +378,101 @@ impl std::fmt::Debug for FlightRecorder {
 /// this layer's `on_event`, defeating the entire purpose.
 pub struct FlightRecorderLayer {
     recorder: FlightRecorder,
+    capture_span_context: bool,
+    dump_config: Option<DumpConfig>,
+}
+
+/// Configuration for automatic snapshot-on-trigger dumps.
+///
+/// Built by [`FlightRecorderLayer::with_dump_on`]. When the trigger fires, the
+/// layer writes a [`FlightRecorderDump`] envelope to `dir` with `prefix` and
+/// keeps at most `max_files` snapshots (0 = unlimited).
+struct DumpConfig {
+    trigger: Box<dyn Trigger>,
+    dir: PathBuf,
+    prefix: String,
+    max_files: usize,
 }
 
 impl FlightRecorderLayer {
     /// Create a new layer that feeds events into the given recorder.
+    ///
+    /// Span context capture is **enabled by default**: events fired inside
+    /// spans record their full span hierarchy. To disable it for maximum
+    /// throughput (when request context is not needed in snapshots), use
+    /// [`FlightRecorderLayer::with_span_capture`].
     #[must_use]
     pub const fn new(recorder: FlightRecorder) -> Self {
-        Self { recorder }
+        Self {
+            recorder,
+            capture_span_context: true,
+            dump_config: None,
+        }
+    }
+
+    /// Create a new layer, explicitly choosing whether to capture the span
+    /// hierarchy on each event.
+    ///
+    /// Set `capture` to `false` to skip span field storage and per-event scope
+    /// walking entirely — useful for high-throughput pipelines where request
+    /// context is not needed. Such events have an empty `spans` vec.
+    #[must_use]
+    pub const fn with_span_capture(recorder: FlightRecorder, capture: bool) -> Self {
+        Self {
+            recorder,
+            capture_span_context: capture,
+            dump_config: None,
+        }
+    }
+
+    /// Attach an automatic snapshot-on-trigger policy.
+    ///
+    /// On every event, `trigger` is evaluated; when it returns `true` the
+    /// buffer is written (as a [`FlightRecorderDump`] envelope, with the
+    /// trigger's name as `trigger_reason`) to a timestamped file in `dir`
+    /// named `{prefix}-{YYYYmmddT-HHMMSS}.json`, keeping at most `max_files`
+    /// snapshots (`0` = unlimited).
+    ///
+    /// The dump happens synchronously in the thread that emitted the triggering
+    /// event. For the common case — a [`OnceTrigger`](crate::OnceTrigger)
+    /// around a [`LevelTrigger::error`](crate::LevelTrigger::error) — this is a
+    /// single file write, once per process lifetime.
+    #[must_use]
+    pub fn with_dump_on(
+        mut self,
+        trigger: impl Trigger + 'static,
+        dir: impl Into<PathBuf>,
+        prefix: impl Into<String>,
+        max_files: usize,
+    ) -> Self {
+        self.dump_config = Some(DumpConfig {
+            trigger: Box::new(trigger),
+            dir: dir.into(),
+            prefix: prefix.into(),
+            max_files,
+        });
+        self
     }
 
     /// Get a clone of the underlying recorder handle.
     #[must_use]
     pub fn recorder(&self) -> FlightRecorder {
         self.recorder.clone()
+    }
+
+    /// Write a snapshot envelope to the configured dump directory.
+    ///
+    /// No-op when no dump policy is attached.
+    fn fire_dump(&self, reason: &str) -> std::io::Result<()> {
+        if let Some(cfg) = &self.dump_config {
+            self.recorder.dump_with_retention_envelope(
+                &cfg.dir,
+                &cfg.prefix,
+                cfg.max_files,
+                Some(reason),
+            )?;
+        }
+        Ok(())
     }
 }
 
@@ -326,11 +486,15 @@ where
         id: &tracing::span::Id,
         ctx: Context<'_, S>,
     ) {
+        if !self.capture_span_context {
+            return;
+        }
         let mut visitor = FieldVisitor::default();
         attrs.record(&mut visitor);
         let fields = visitor.into_fields();
         if let Some(span) = ctx.span(id) {
-            span.extensions_mut().insert(CapturedSpanFields(fields));
+            span.extensions_mut()
+                .insert(CapturedSpanFields(Arc::new(fields)));
         }
     }
 
@@ -340,22 +504,39 @@ where
         values: &tracing::span::Record<'_>,
         ctx: Context<'_, S>,
     ) {
+        if !self.capture_span_context {
+            return;
+        }
         let mut visitor = FieldVisitor::default();
         values.record(&mut visitor);
         let new_fields = visitor.into_fields();
         if let Some(span) = ctx.span(id) {
             let mut extensions = span.extensions_mut();
             match extensions.get_mut::<CapturedSpanFields>() {
-                Some(existing) => existing.0.extend(new_fields),
-                None => extensions.insert(CapturedSpanFields(new_fields)),
+                Some(existing) => Arc::make_mut(&mut existing.0).extend(new_fields),
+                None => extensions.insert(CapturedSpanFields(Arc::new(new_fields))),
             }
         }
     }
 
     fn on_event(&self, event: &Event<'_>, ctx: Context<'_, S>) {
         let mut captured = CapturedEvent::from_event(event);
-        captured.spans = capture_span_context(event, &ctx);
+        if self.capture_span_context {
+            captured.spans = capture_span_context(event, &ctx);
+        }
+        // Decide whether to dump *before* moving `captured` into the buffer,
+        // so the triggering event is included in the snapshot we write.
+        let reason = self.dump_config.as_ref().and_then(|cfg| {
+            cfg.trigger
+                .should_dump(&captured)
+                .then(|| cfg.trigger.name().to_string())
+        });
         self.recorder.push(captured);
+        if let Some(reason) = reason {
+            // Best-effort: a failed trigger-dump is logged away, not propagated.
+            // Retention keeps the directory from growing without bound.
+            let _result = self.fire_dump(&reason);
+        }
     }
 }
 
@@ -363,7 +544,7 @@ where
 ///
 /// Stored via `LookupSpan`'s extension mechanism when a span is created or
 /// updated, then read back in `on_event` to populate [`SpanContext`].
-struct CapturedSpanFields(Vec<(String, String)>);
+struct CapturedSpanFields(Arc<Vec<(String, String)>>);
 
 /// Walk the span hierarchy around `event` and collect each span's name + fields.
 ///
@@ -384,7 +565,7 @@ where
             fields: span_ref
                 .extensions()
                 .get::<CapturedSpanFields>()
-                .map_or_else(Vec::new, |f| f.0.clone()),
+                .map_or_else(|| Arc::new(Vec::new()), |f| Arc::clone(&f.0)),
         })
         .collect()
 }
