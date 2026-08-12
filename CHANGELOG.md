@@ -35,6 +35,7 @@ work are combined here. 8 breaking changes total._
 - **Criterion benchmarks** — `benches/push_dump.rs` covers the `on_event` capture path, `snapshot`, and `dump_to_json` at varying buffer sizes
 - **Allocation-count profiling** — an `#[ignore]`d test backed by a counting global allocator characterizes the `on_event` hot path at ~9 allocations/event
 - **Runnable examples** — `span_context.rs`, `compression.rs`, `observability.rs` added to the existing set (`examples/`)
+- **README "Span Context Capture" section** with a code example showing nested spans and the resulting `spans` field
 - **Edge-case & fuzz tests** — 12-deep nested span hierarchy, `i128`/`u128` min/max, read-only directory dump, and a 512-case proptest cross-validating the zero-allocation redaction matcher
 
 ### Changed
