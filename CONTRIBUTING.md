@@ -89,6 +89,7 @@ Avoid introducing a `DumpFormat` trait abstraction until there are 3+ formats
 ## Reporting Issues
 
 Include:
+
 - Rust version (`rustc --version`)
 - Crate version
 - Minimal reproduction (ideally as a test)

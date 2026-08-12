@@ -25,50 +25,50 @@ fixed in `5b26e62` (target/ purge, monitor365 removal) and `d905cf2`
 
 ## a) FULLY DONE
 
-| # | Item | Evidence |
-|---|------|----------|
-| 1 | Built `AGENTS.md` (prior turn) — 6.3 KB, under the 5–15 KB sweet spot, passes the endurance test | `AGENTS.md`, `wc -c` = 6290 |
-| 2 | Built `CHANGELOG.md` — `[Unreleased]` section, every entry traced to a real commit, no invented history | `CHANGELOG.md` |
-| 3 | Built `FEATURES.md` — 5 domains, 13 features, every status backed by a passing test name + `file:line` | `FEATURES.md` |
-| 4 | Built `TODO_LIST.md` — 5 items, all `🔴 TODO`, every item verified open against code, no forbidden "Done" sections | `TODO_LIST.md` |
-| 5 | Built `ROADMAP.md` — 5 themes + 4 non-goals, no bounded tasks leaking in from TODO_LIST | `ROADMAP.md` |
-| 6 | Verified all `file:line` citations resolve to real code | 12 unique citations, all checked |
-| 7 | Ran quality gate: `cargo test --all-features` (16 passed) + `cargo clippy --all-features -- -D warnings` (clean) | terminal output |
-| 8 | Cross-file consistency: no PLANNED↔FULLY_FUNCTIONAL split brains, no CHANGELOG↔TODO duplication | grep checks |
-| 9 | Correctly identified there are **no** `2026-08-0*` historical files and **nothing to archive/harvest/annotate** | `find` returned empty |
+| # | Item                                                                                                               | Evidence                         |
+| - | ------------------------------------------------------------------------------------------------------------------ | -------------------------------- |
+| 1 | Built `AGENTS.md` (prior turn) — 6.3 KB, under the 5–15 KB sweet spot, passes the endurance test                   | `AGENTS.md`, `wc -c` = 6290      |
+| 2 | Built `CHANGELOG.md` — `[Unreleased]` section, every entry traced to a real commit, no invented history            | `CHANGELOG.md`                   |
+| 3 | Built `FEATURES.md` — 5 domains, 13 features, every status backed by a passing test name + `file:line`             | `FEATURES.md`                    |
+| 4 | Built `TODO_LIST.md` — 5 items, all `🔴 TODO`, every item verified open against code, no forbidden "Done" sections | `TODO_LIST.md`                   |
+| 5 | Built `ROADMAP.md` — 5 themes + 4 non-goals, no bounded tasks leaking in from TODO_LIST                            | `ROADMAP.md`                     |
+| 6 | Verified all `file:line` citations resolve to real code                                                            | 12 unique citations, all checked |
+| 7 | Ran quality gate: `cargo test --all-features` (16 passed) + `cargo clippy --all-features -- -D warnings` (clean)   | terminal output                  |
+| 8 | Cross-file consistency: no PLANNED↔FULLY_FUNCTIONAL split brains, no CHANGELOG↔TODO duplication                    | grep checks                      |
+| 9 | Correctly identified there are **no** `2026-08-0*` historical files and **nothing to archive/harvest/annotate**    | `find` returned empty            |
 
 ---
 
 ## b) PARTIALLY DONE
 
-| # | Item | What's done | What's missing |
-|---|------|-------------|----------------|
-| 1 | Documentation set | 6 of 7 living docs exist and are verified | `docs/DOMAIN_LANGUAGE.md` — flagged as a missing must-have in the health report but **not built**. Punted with "impact is low." That violates AUDIT step 1 ("BUILD missing docs"). The domain is small (flight recorder, ring buffer, captured event, layer) but the skill does not exempt small domains. |
-| 2 | README ↔ FEATURES consistency check | Found the `monitor365` leak | Did not systematically map every README feature bullet to a FEATURES.md row; spot-checked only |
-| 3 | Health report scoring | Computed Accuracy 9.5 / Fitness 9.0 with visible math | DOMAIN_LANGUAGE gap flagged but left as a finding rather than fixed by building the doc |
+| # | Item                                | What's done                                           | What's missing                                                                                                                                                                                                                                                                                            |
+| - | ----------------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 | Documentation set                   | 6 of 7 living docs exist and are verified             | `docs/DOMAIN_LANGUAGE.md` — flagged as a missing must-have in the health report but **not built**. Punted with "impact is low." That violates AUDIT step 1 ("BUILD missing docs"). The domain is small (flight recorder, ring buffer, captured event, layer) but the skill does not exempt small domains. |
+| 2 | README ↔ FEATURES consistency check | Found the `monitor365` leak                           | Did not systematically map every README feature bullet to a FEATURES.md row; spot-checked only                                                                                                                                                                                                            |
+| 3 | Health report scoring               | Computed Accuracy 9.5 / Fitness 9.0 with visible math | DOMAIN_LANGUAGE gap flagged but left as a finding rather than fixed by building the doc                                                                                                                                                                                                                   |
 
 ---
 
 ## c) NOT STARTED
 
-| # | Item | Why |
-|---|------|-----|
-| 1 | `docs/DOMAIN_LANGUAGE.md` | See (b)1 — should have been built during AUDIT step 1 |
+| # | Item                                        | Why                                                                                                                                   |
+| - | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 | `docs/DOMAIN_LANGUAGE.md`                   | See (b)1 — should have been built during AUDIT step 1                                                                                 |
 | 2 | HARVEST / ANNOTATE / archive of old reports | Genuinely N/A — no `docs/status/`, `docs/planning/`, or timestamped files exist. This is not a gap; it's an accurate "nothing to do." |
-| 3 | Fixing the two defects I found | Out of docs-health scope, but fix-on-sight principle says at least the trivial typo should have been repaired |
-| 4 | README rewrite to align with FEATURES.md | Not attempted |
+| 3 | Fixing the two defects I found              | Out of docs-health scope, but fix-on-sight principle says at least the trivial typo should have been repaired                         |
+| 4 | README rewrite to align with FEATURES.md    | Not attempted                                                                                                                         |
 
 ---
 
 ## d) TOTALLY FUCKED UP!
 
 These are pre-existing defects in the repo that the audit exposed. They are not
-my doing, but I *also* fucked up by not fixing the trivial one on sight.
+my doing, but I _also_ fucked up by not fixing the trivial one on sight.
 
 ### 1. 680 `target/` build artifacts are committed to git 🔴 CRITICAL
 
 `git ls-files target/ | wc -l` = **680 files**. The `.gitignore` contains
-`target/` (line 46) but the files were committed *before* the ignore took effect
+`target/` (line 46) but the files were committed _before_ the ignore took effect
 (or `git add` ran with `--force`-equivalent behavior). This bloats every clone,
 every `git status`, and every object lookup. It is the single largest hygiene
 defect in the repo.
@@ -106,11 +106,11 @@ my own judgment against the skill's explicit instruction. Wrong call in a
 
 ### On my process this session
 
-1. **Fix-on-sight discipline collapsed.** I found a trivial typo, logged it, and walked away. The AGENTS.md philosophy I documented *in this very session* says "fix issues on sight." I violated my own freshly-written rule. Next time: a typo in a doc gets fixed immediately, full stop.
-2. **I let "scope" override the skill's explicit BUILD step.** "Docs-health builds docs" became "docs-health *only* builds docs," which I then used to skip building DOMAIN_LANGUAGE. Scope creep is a risk, but skipping a mandated BUILD step is the opposite error.
+1. **Fix-on-sight discipline collapsed.** I found a trivial typo, logged it, and walked away. The AGENTS.md philosophy I documented _in this very session_ says "fix issues on sight." I violated my own freshly-written rule. Next time: a typo in a doc gets fixed immediately, full stop.
+2. **I let "scope" override the skill's explicit BUILD step.** "Docs-health builds docs" became "docs-health _only_ builds docs," which I then used to skip building DOMAIN_LANGUAGE. Scope creep is a risk, but skipping a mandated BUILD step is the opposite error.
 3. **No `cargo doc` verification.** I verified tests and clippy but not that `cargo doc --no-deps` renders cleanly. Doc comments are part of the public API for a library crate; I should have checked.
 4. **Line-number citations are point-in-time.** Any edit to `src/` shifts them. I did not add a caveat. Low severity but worth noting for future maintainers of these docs.
-5. **Health report Fitness score may be too generous.** I scored 9.0 despite a missing must-have doc — that's because only one doc is missing. But the *reason* I gave (small domain) is post-hoc rationalization for not doing the build.
+5. **Health report Fitness score may be too generous.** I scored 9.0 despite a missing must-have doc — that's because only one doc is missing. But the _reason_ I gave (small domain) is post-hoc rationalization for not doing the build.
 
 ### On the project (beyond this session)
 
@@ -128,6 +128,7 @@ surfaced by this audit. Items 6–15 are bounded TODO work. 16+ are ROADMAP fuel
 and idea exploration — larger N is brainstorm, not commitment.
 
 ### Critical hygiene (do first)
+
 1. Untrack `target/` — `git rm -r --cached target/` (680 files, huge clone bloat)
 2. Fix `README.md:21` "Zero monitor365 dependencies" leak
 3. Decide `monitor365` in `src/layer.rs:203` doc comment — replace with a neutral example target
@@ -135,6 +136,7 @@ and idea exploration — larger N is brainstorm, not commitment.
 5. Add `.github/workflows/ci.yml` — `cargo build`, `cargo test --all-features`, `cargo clippy --all-features -- -D warnings`
 
 ### Bounded TODO work
+
 6. Guard `dump_with_retention` against same-second filename collision (`src/layer.rs:140`) — add sub-second suffix or counter
 7. Add a test asserting the `utoipa::ToSchema` output for `CapturedEvent` (promotes it from PARTIALLY_FUNCTIONAL)
 8. Run `cargo doc --no-deps --all-features` and fix any warnings (doc comment quality)
@@ -147,6 +149,7 @@ and idea exploration — larger N is brainstorm, not commitment.
 15. Add `examples/`: per-layer-filter-vs-global-filter contrast (the core gotcha)
 
 ### Output & formats (ROADMAP theme 3)
+
 16. Prototype Chrome Trace Event format export
 17. Prototype newline-delimited JSON export
 18. Prototype human-readable pretty-text dump for chat paste
@@ -154,11 +157,13 @@ and idea exploration — larger N is brainstorm, not commitment.
 20. Decide output format trait abstraction (`DumpFormat`) to avoid method-per-format sprawl
 
 ### Time-windowed capture (ROADMAP theme 1)
+
 21. Design time-based eviction policy alongside count-based
 22. Prototype hybrid capacity: `max_events` OR `max_age`
 23. Expose buffer time-span metadata (oldest event timestamp, coverage duration)
 
 ### Hot-path performance (ROADMAP theme 2)
+
 24. Benchmark current per-event lock + alloc cost (criterion)
 25. Evaluate `parking_lot::Mutex` vs `std::sync::Mutex`
 26. Investigate lock-free ring buffer (`crossbeam-queue` or similar)
@@ -167,6 +172,7 @@ and idea exploration — larger N is brainstorm, not commitment.
 29. Evaluate async channel + background writer so `on_event` never serializes
 
 ### Framework ergonomics (ROADMAP theme 4)
+
 30. `tower` middleware that auto-dumps on error `Response`
 31. `axum` extractor / `on_response` hook for incident capture
 32. Panic-hook integration that dumps before process exit
@@ -174,6 +180,7 @@ and idea exploration — larger N is brainstorm, not commitment.
 34. `tokio::task::JoinSet` integration for multi-task incident correlation
 
 ### Crates.io readiness (ROADMAP theme 5)
+
 35. Verify `Cargo.toml` metadata renders on crates.io (`cargo publish --dry-run`)
 36. Decide on first version tag (v0.1.0) and populate CHANGELOG versioned section
 37. Add categories/keywords refinement for discoverability
@@ -181,6 +188,7 @@ and idea exploration — larger N is brainstorm, not commitment.
 39. Audit `exclude` list in `Cargo.toml` (currently `/target`, `/.github`)
 
 ### Testing & quality
+
 40. Add property-based tests for ring buffer eviction (proptest or quickcheck)
 41. Add concurrent-push stress test (many threads, one recorder)
 42. Add test for `is_sensitive_field` with Unicode/case-variant field names
@@ -189,6 +197,7 @@ and idea exploration — larger N is brainstorm, not commitment.
 45. Measure and document memory footprint at `DEFAULT_CAPACITY` (README claims ~200–500 KB)
 
 ### Documentation polish
+
 46. Add architecture diagram (data flow: event → layer → visitor → buffer → dump)
 47. Cross-link FEATURES.md test names to their source locations
 48. Add a CONTRIBUTING.md if external contributions are expected
@@ -202,7 +211,7 @@ and idea exploration — larger N is brainstorm, not commitment.
 ### 1. Is `monitor365` a real sister-project name that belongs here, or a copy-paste leak?
 
 `monitor365` appears in two places: a doc-comment example filter
-(`EnvFilter::new("monitor365=debug,warn")`) which *could* be an intentional
+(`EnvFilter::new("monitor365=debug,warn")`) which _could_ be an intentional
 named-app example, and `README.md:21` ("Zero monitor365 dependencies") which
 reads as a pure leak. I cannot tell from the repo alone whether `monitor365` is a
 real related project whose name is intentional in the example, or stray
@@ -237,11 +246,11 @@ _End of report._
 
 All session findings were resolved by subsequent sessions:
 
-| Finding | Resolution | Commit |
-|---------|-----------|--------|
-| 680 committed `target/` artifacts | Purged, `.git` 71MB → 188KB | `5b26e62` |
-| `monitor365` name leak in README + layer.rs | Replaced with neutral `my_app` | `5b26e62` |
-| `docs/DOMAIN_LANGUAGE.md` missing | Built (20 terms, 5 categories) | `d905cf2` |
-| No CI | GitHub Actions CI added (fmt/clippy/test/doc/MSRV) | `b688c4d` |
-| v0.1.0 not tagged/published | Tagged `v0.1.0`, published to crates.io | `36af9c8`, `dd6d2bb` |
-| All 50 "next things" brainstorm | Items picked up across sessions 2–7 (v0.1.0/v0.1.1 release), sessions 8–12 (v0.2.0/v0.3.0 features). Remaining open items in `TODO_LIST.md`. | — |
+| Finding                                     | Resolution                                                                                                                                   | Commit               |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| 680 committed `target/` artifacts           | Purged, `.git` 71MB → 188KB                                                                                                                  | `5b26e62`            |
+| `monitor365` name leak in README + layer.rs | Replaced with neutral `my_app`                                                                                                               | `5b26e62`            |
+| `docs/DOMAIN_LANGUAGE.md` missing           | Built (20 terms, 5 categories)                                                                                                               | `d905cf2`            |
+| No CI                                       | GitHub Actions CI added (fmt/clippy/test/doc/MSRV)                                                                                           | `b688c4d`            |
+| v0.1.0 not tagged/published                 | Tagged `v0.1.0`, published to crates.io                                                                                                      | `36af9c8`, `dd6d2bb` |
+| All 50 "next things" brainstorm             | Items picked up across sessions 2–7 (v0.1.0/v0.1.1 release), sessions 8–12 (v0.2.0/v0.3.0 features). Remaining open items in `TODO_LIST.md`. | —                    |

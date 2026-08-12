@@ -45,12 +45,12 @@ If any of these fail, **stop**. Do not ship a release on a red gate.
 
 ## Semver rules
 
-| Change                                         | Bump  | Example                             |
-| ---------------------------------------------- | ----- | ----------------------------------- |
-| New public API (additive)                      | minor | new dump format, new constructor    |
-| Bug fix (no API change)                        | patch | collision counter fix               |
+| Change                                         | Bump  | Example                               |
+| ---------------------------------------------- | ----- | ------------------------------------- |
+| New public API (additive)                      | minor | new dump format, new constructor      |
+| Bug fix (no API change)                        | patch | collision counter fix                 |
 | Breaking API change (field rename, removed fn) | major | `FlightRecorder` internal restructure |
-| MSRV bump                                      | minor | 1.86 → 1.87 (document in CHANGELOG) |
+| MSRV bump                                      | minor | 1.86 → 1.87 (document in CHANGELOG)   |
 
 `#[non_exhaustive]` on public structs (if added) means adding a field is a minor
 bump, not a major one.

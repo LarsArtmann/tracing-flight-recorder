@@ -170,7 +170,7 @@ error!("database query failed");
 
 An error event with no fields, no request ID, no user ID, no path. In a
 production incident with 847 buffered events, you have 847 decontextualized
-messages. You know that *something* broke, but you cannot correlate events
+messages. You know that _something_ broke, but you cannot correlate events
 to requests, users, or operations.
 
 **This defeats the entire purpose of the `tracing` ecosystem.** The reason
@@ -239,22 +239,22 @@ For a typical event `tracing::info!(device = "dev-1", count = 42, active = true,
 
 4 fields total: `message`, `device`, `count`, `active`
 
-| Step | Code location | Allocations |
-|------|---------------|-------------|
-| `level_to_string` → `.to_string()` on `&'static str` | `capture.rs:152` | 1 |
-| `target` → `.to_string()` on `&str` | `capture.rs:42` | 1 |
-| `record_str("device", "dev-1")` → `value.to_string()` | `capture.rs:112` | 1 |
-| `is_sensitive_field("device")` → `name.to_lowercase()` | `capture.rs:93` | 1 |
-| `field.name().to_string()` for device key | `capture.rs:80` | 1 |
-| `record_i64("count", 42)` → `value.to_string()` | `capture.rs:121` | 1 |
-| `is_sensitive_field("count")` → `name.to_lowercase()` | `capture.rs:93` | 1 |
-| `field.name().to_string()` for count key | `capture.rs:80` | 1 |
-| `record_bool("active", true)` → `value.to_string()` | `capture.rs:117` | 1 |
-| `is_sensitive_field("active")` → `name.to_lowercase()` | `capture.rs:93` | 1 |
-| `field.name().to_string()` for active key | `capture.rs:80` | 1 |
-| `record_debug("message", ...)` → `write!(buf, ...)` | `capture.rs:107` | 1 |
-| `Vec<(String, String)>` reallocation (3 pushes, 0→1→2→4 capacity) | `capture.rs:80` | ~2 |
-| **Total** | | **14** |
+| Step                                                              | Code location    | Allocations |
+| ----------------------------------------------------------------- | ---------------- | ----------- |
+| `level_to_string` → `.to_string()` on `&'static str`              | `capture.rs:152` | 1           |
+| `target` → `.to_string()` on `&str`                               | `capture.rs:42`  | 1           |
+| `record_str("device", "dev-1")` → `value.to_string()`             | `capture.rs:112` | 1           |
+| `is_sensitive_field("device")` → `name.to_lowercase()`            | `capture.rs:93`  | 1           |
+| `field.name().to_string()` for device key                         | `capture.rs:80`  | 1           |
+| `record_i64("count", 42)` → `value.to_string()`                   | `capture.rs:121` | 1           |
+| `is_sensitive_field("count")` → `name.to_lowercase()`             | `capture.rs:93`  | 1           |
+| `field.name().to_string()` for count key                          | `capture.rs:80`  | 1           |
+| `record_bool("active", true)` → `value.to_string()`               | `capture.rs:117` | 1           |
+| `is_sensitive_field("active")` → `name.to_lowercase()`            | `capture.rs:93`  | 1           |
+| `field.name().to_string()` for active key                         | `capture.rs:80`  | 1           |
+| `record_debug("message", ...)` → `write!(buf, ...)`               | `capture.rs:107` | 1           |
+| `Vec<(String, String)>` reallocation (3 pushes, 0→1→2→4 capacity) | `capture.rs:80`  | ~2          |
+| **Total**                                                         |                  | **14**      |
 
 For a **5-field** event: **17 allocations**. For a **sensitive** field, add
 1 more (`"[REDACTED]".to_string()` — `capture.rs:76`). For a **0-field**
@@ -370,14 +370,14 @@ go tool trace."
 
 Missing patterns for a web service context:
 
-| Field name | Why it matters | Currently redacted? |
-|------------|----------------|---------------------|
-| `authorization` | Standard HTTP header, carries bearer tokens | **No** |
-| `auth` | Common abbreviation | **No** |
-| `bearer` | Token type in Authorization header | **No** |
-| `cookie` | Can contain session tokens | **No** |
-| `session_id` | Session identifier | **No** |
-| `access_code` | OAuth access codes | **No** |
+| Field name      | Why it matters                              | Currently redacted? |
+| --------------- | ------------------------------------------- | ------------------- |
+| `authorization` | Standard HTTP header, carries bearer tokens | **No**              |
+| `auth`          | Common abbreviation                         | **No**              |
+| `bearer`        | Token type in Authorization header          | **No**              |
+| `cookie`        | Can contain session tokens                  | **No**              |
+| `session_id`    | Session identifier                          | **No**              |
+| `access_code`   | OAuth access codes                          | **No**              |
 
 `authorization` is the most glaring omission. In HTTP services, it's the
 standard field name for the credential that grants access.
@@ -462,46 +462,46 @@ files) to 3,411 LOC (7 source files + 2 new supporting files), adding
 compression, retention, async capture, observability hooks, directory
 snapshots, and nil-safe lifecycle.
 
-| Dimension | Go (go-flightrecorder) | Rust (tracing-flight-recorder) |
-|-----------|------------------------|--------------------------------|
-| **What it captures** | Runtime execution traces (goroutine scheduling, GC, syscalls) | Application tracing events (structured logs) |
-| **Context fidelity** | Full (runtime trace includes call stacks, goroutine IDs) | **None** (span context discarded) |
-| **Hot-path cost** | Zero allocations (runtime handles buffering) | 14-17 allocations/event under global mutex |
-| **Buffer model** | Time + bytes (temporal guarantee) | Event count (no temporal guarantee under load) |
-| **Trigger system** | Composable: OnError, OnLatency, OnAny, OnAll | None (manual dump calls) |
-| **Once-semantics** | sync.Once + Reset() | None |
-| **Async capture** | **SnapshotIfAsync** (background goroutine, drain on Stop/Close) | None |
-| **Observability hooks** | **WithMetrics + WithLogger** (SnapshotEvent with source labels) | None |
-| **Compression** | **WithCompression** (gzip, opt-in, 10x reduction) | None |
-| **Directory snapshots** | **SnapshotToDir** (timestamped, prefixed, non-once-latched) | dump_to_file (single file, manual naming) |
-| **Retention** | **WithMaxSnapshots** (prune oldest, prefix/suffix filtered) | dump_with_retention (buggy at max_files=0) |
-| **Arbitrary writer sink** | **SnapshotToWriter** (bypasses once-latch, for debug endpoints) | None |
-| **Nil-safe lifecycle** | **Enabled/Stop/Close** on nil receiver | N/A (Rust ownership) |
-| **Secret redaction** | N/A (binary trace data) | Yes, but missing `authorization` and allocates per field |
-| **Output format** | Binary (go tool trace), gzip-compressed | Pretty JSON array (not streamable) |
-| **Dependencies** | Zero (stdlib only) | 5 (3 non-tracing despite README claim) |
-| **Known bugs** | 2 doc contradictions (gzip claim in options.go + FEATURES.md) | 2 confirmed (capacity=0, retention=0), 1 measurement flaw |
-| **Stale docs** | options.go:121 claims gzip "loadable by go tool trace" (disproven by own status report); AGENTS.md string-matching claim was fixed | README claims "zero non-tracing deps" (false) |
-| **Tests** | 64 tests + race detector | 27 + proptest + concurrency + memory (undercounts) |
-| **CI** | 3 jobs (test+race, vet, lint) | 7+ jobs (best-in-class) |
-| **Code size** | 3,411 LOC (7 source + 2 test files) | 1,321 LOC (3 source + 1 test + 3 examples) |
-| **Examples** | None | 3 runnable |
+| Dimension                 | Go (go-flightrecorder)                                                                                                             | Rust (tracing-flight-recorder)                            |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| **What it captures**      | Runtime execution traces (goroutine scheduling, GC, syscalls)                                                                      | Application tracing events (structured logs)              |
+| **Context fidelity**      | Full (runtime trace includes call stacks, goroutine IDs)                                                                           | **None** (span context discarded)                         |
+| **Hot-path cost**         | Zero allocations (runtime handles buffering)                                                                                       | 14-17 allocations/event under global mutex                |
+| **Buffer model**          | Time + bytes (temporal guarantee)                                                                                                  | Event count (no temporal guarantee under load)            |
+| **Trigger system**        | Composable: OnError, OnLatency, OnAny, OnAll                                                                                       | None (manual dump calls)                                  |
+| **Once-semantics**        | sync.Once + Reset()                                                                                                                | None                                                      |
+| **Async capture**         | **SnapshotIfAsync** (background goroutine, drain on Stop/Close)                                                                    | None                                                      |
+| **Observability hooks**   | **WithMetrics + WithLogger** (SnapshotEvent with source labels)                                                                    | None                                                      |
+| **Compression**           | **WithCompression** (gzip, opt-in, 10x reduction)                                                                                  | None                                                      |
+| **Directory snapshots**   | **SnapshotToDir** (timestamped, prefixed, non-once-latched)                                                                        | dump_to_file (single file, manual naming)                 |
+| **Retention**             | **WithMaxSnapshots** (prune oldest, prefix/suffix filtered)                                                                        | dump_with_retention (buggy at max_files=0)                |
+| **Arbitrary writer sink** | **SnapshotToWriter** (bypasses once-latch, for debug endpoints)                                                                    | None                                                      |
+| **Nil-safe lifecycle**    | **Enabled/Stop/Close** on nil receiver                                                                                             | N/A (Rust ownership)                                      |
+| **Secret redaction**      | N/A (binary trace data)                                                                                                            | Yes, but missing `authorization` and allocates per field  |
+| **Output format**         | Binary (go tool trace), gzip-compressed                                                                                            | Pretty JSON array (not streamable)                        |
+| **Dependencies**          | Zero (stdlib only)                                                                                                                 | 5 (3 non-tracing despite README claim)                    |
+| **Known bugs**            | 2 doc contradictions (gzip claim in options.go + FEATURES.md)                                                                      | 2 confirmed (capacity=0, retention=0), 1 measurement flaw |
+| **Stale docs**            | options.go:121 claims gzip "loadable by go tool trace" (disproven by own status report); AGENTS.md string-matching claim was fixed | README claims "zero non-tracing deps" (false)             |
+| **Tests**                 | 64 tests + race detector                                                                                                           | 27 + proptest + concurrency + memory (undercounts)        |
+| **CI**                    | 3 jobs (test+race, vet, lint)                                                                                                      | 7+ jobs (best-in-class)                                   |
+| **Code size**             | 3,411 LOC (7 source + 2 test files)                                                                                                | 1,321 LOC (3 source + 1 test + 3 examples)                |
+| **Examples**              | None                                                                                                                               | 3 runnable                                                |
 
 ### What changed in this update
 
 The Go project closed every operational gap that existed between the two
 projects and pulled significantly ahead:
 
-| Feature | Before Go update | After Go update |
-|---------|-----------------|-----------------|
-| Retention | Rust only (unique feature) | **Both** — Go's version is more robust (0=unlimited, prefix/suffix filter) |
-| Compression | Neither | **Go only** |
-| Async capture | Neither | **Go only** |
-| Metrics hooks | Neither | **Go only** |
-| Logger hooks | Neither | **Go only** |
-| Directory snapshots | Neither | **Go only** |
-| Arbitrary writer sink | Neither | **Go only** |
-| Nil-safe lifecycle | Neither | **Go only** |
+| Feature               | Before Go update           | After Go update                                                            |
+| --------------------- | -------------------------- | -------------------------------------------------------------------------- |
+| Retention             | Rust only (unique feature) | **Both** — Go's version is more robust (0=unlimited, prefix/suffix filter) |
+| Compression           | Neither                    | **Go only**                                                                |
+| Async capture         | Neither                    | **Go only**                                                                |
+| Metrics hooks         | Neither                    | **Go only**                                                                |
+| Logger hooks          | Neither                    | **Go only**                                                                |
+| Directory snapshots   | Neither                    | **Go only**                                                                |
+| Arbitrary writer sink | Neither                    | **Go only**                                                                |
+| Nil-safe lifecycle    | Neither                    | **Go only**                                                                |
 
 The Rust crate now uniquely offers only: secret redaction, OpenAPI schema
 support, and runnable examples. Everything else has been matched or
@@ -540,20 +540,20 @@ exceeded.
 
 ## RECOMMENDED PRIORITY
 
-| Phase | What | Why |
-|-------|------|-----|
-| **Immediate** | Fix Rust capacity=0 and retention=0 bugs | Active data-loss defects |
-| **Immediate** | Fix Rust README "zero non-tracing dependencies" claim | False advertising |
-| **Immediate** | Fix Go `options.go:121` + `FEATURES.md:56` gzip claim | Contradicts own empirical finding |
-| **v0.2.0** | **Span context capture** | Without this, the crate is not a tracing tool |
-| **v0.2.0** | Fix `is_sensitive_field` to not allocate | Free perf win on every event |
-| **v0.2.0** | Add `authorization` to redaction patterns | Security gap |
-| **v0.2.0** | `dump_to_writer` + NDJSON output | Trivial additions, big usability gains |
-| **v0.2.0** | Observability hooks (match Go's WithMetrics/WithLogger) | The Go project just lapped the Rust crate here |
-| **v0.3.0** | Time-based + count hybrid eviction | Temporal guarantee under load |
-| **v0.3.0** | Trigger system + once-semantics | Match Go sibling's production readiness |
-| **v0.3.0** | Async capture (spawn background task) | Match Go's SnapshotIfAsync |
-| **v0.4.0** | Hot-path: parking_lot, Arc events, field pre-allocation | Performance competitiveness |
+| Phase         | What                                                    | Why                                            |
+| ------------- | ------------------------------------------------------- | ---------------------------------------------- |
+| **Immediate** | Fix Rust capacity=0 and retention=0 bugs                | Active data-loss defects                       |
+| **Immediate** | Fix Rust README "zero non-tracing dependencies" claim   | False advertising                              |
+| **Immediate** | Fix Go `options.go:121` + `FEATURES.md:56` gzip claim   | Contradicts own empirical finding              |
+| **v0.2.0**    | **Span context capture**                                | Without this, the crate is not a tracing tool  |
+| **v0.2.0**    | Fix `is_sensitive_field` to not allocate                | Free perf win on every event                   |
+| **v0.2.0**    | Add `authorization` to redaction patterns               | Security gap                                   |
+| **v0.2.0**    | `dump_to_writer` + NDJSON output                        | Trivial additions, big usability gains         |
+| **v0.2.0**    | Observability hooks (match Go's WithMetrics/WithLogger) | The Go project just lapped the Rust crate here |
+| **v0.3.0**    | Time-based + count hybrid eviction                      | Temporal guarantee under load                  |
+| **v0.3.0**    | Trigger system + once-semantics                         | Match Go sibling's production readiness        |
+| **v0.3.0**    | Async capture (spawn background task)                   | Match Go's SnapshotIfAsync                     |
+| **v0.4.0**    | Hot-path: parking_lot, Arc events, field pre-allocation | Performance competitiveness                    |
 
 The span context gap is the thesis statement of this review. The Go
 project's operational feature blitz has widened the gap further. The Rust
@@ -574,11 +574,11 @@ matching the Go project's operational feature set.
 
 9 of 10 MISSING API SURFACE items shipped. 3 bugs fixed. Span context implemented.
 
-| Category | Items | Status |
-|----------|-------|--------|
-| ACTUAL BUGS (3) | capacity=0, retention=0, memory undercount | All fixed |
-| SPAN CONTEXT (#1 issue) | Full hierarchy capture, configurable, Arc-shared | Implemented |
-| REDACTION GAPS | authorization + 5 more patterns | Fixed (14 patterns) |
-| FALSE CLAIMS | "zero non-tracing deps" | Fixed |
-| MISSING API (9 items) | 8 of 9 done; async capture deferred to `TODO_LIST.md` | 89% done |
-| Go project bugs (2) | Different repo — not actionable here | — |
+| Category                | Items                                                 | Status              |
+| ----------------------- | ----------------------------------------------------- | ------------------- |
+| ACTUAL BUGS (3)         | capacity=0, retention=0, memory undercount            | All fixed           |
+| SPAN CONTEXT (#1 issue) | Full hierarchy capture, configurable, Arc-shared      | Implemented         |
+| REDACTION GAPS          | authorization + 5 more patterns                       | Fixed (14 patterns) |
+| FALSE CLAIMS            | "zero non-tracing deps"                               | Fixed               |
+| MISSING API (9 items)   | 8 of 9 done; async capture deferred to `TODO_LIST.md` | 89% done            |
+| Go project bugs (2)     | Different repo — not actionable here                  | —                   |

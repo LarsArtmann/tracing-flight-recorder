@@ -12,49 +12,52 @@
 
 ### Features
 
-| Item | Files | Tests | Notes |
-|------|-------|-------|-------|
-| **Gzip compression** (`gzip` feature, `dep:flate2`) | `Cargo.toml`, `src/layer.rs` | `dump_to_file_gz_writes_valid_gzip_that_decompresses`, `dump_envelope_to_file_gz_decompresses_to_valid_envelope`, `on_dump_reports_compressed_bytes_for_gz` | `dump_to_file_gz` + `dump_envelope_to_file_gz`. Verifies gzip magic bytes, round-trip decompress, and that `on_dump` reports compressed byte count. |
-| **Observability hooks** (`DumpEvent` + `DumpSource` + `with_on_dump`) | `src/capture.rs`, `src/layer.rs`, `src/lib.rs` | `on_dump_fires_for_manual_file_dump`, `on_dump_fires_for_trigger_dump_with_trigger_source`, `on_dump_callback_panic_is_contained` | Callback fires on every file-writing dump (manual + trigger). `DumpSource::Manual` vs `DumpSource::Trigger`. Panicking callback is `catch_unwind`-contained. Shared via `Arc` across clones. |
-| **Compact-by-default JSON** (BREAKING → 0.3.0) | `src/layer.rs` | `dump_to_json_is_compact_and_pretty_variant_indents`, `envelope_pretty_variant_indents_and_round_trips` | `dump_to_json`/`dump_to_writer`/`dump_to_file`/`dump_envelope_to_*` now emit compact. New `_pretty` companions: `dump_to_json_pretty`, `dump_to_writer_pretty`, `dump_to_file_pretty`, `dump_envelope_to_json_pretty`, `dump_envelope_to_file_pretty`. |
-| **Criterion benchmarks** | `benches/push_dump.rs`, `Cargo.toml` | Smoke-tested with `--quick` | Covers `on_event` (100/1k/10k events), `snapshot` (1k/10k), `dump_to_json` (1k). Baseline: on_event ≈ 290 ns/event, snapshot 1k ≈ 280 µs, dump_to_json 1k ≈ 809 µs. Uses `harness = false`. |
-| **Allocation profiling** | `src/layer_tests.rs` | `profile_allocations_on_event_hot_path` (`#[ignore]`) | Counting `#[global_allocator]` wrapping `System`. Hot path: ~9 allocs/event. `#[ignore]`d because global counter is perturbed by parallel tests. Run with `--ignored --nocapture`. |
+| Item                                                                  | Files                                          | Tests                                                                                                                                                       | Notes                                                                                                                                                                                                                                                  |
+| --------------------------------------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Gzip compression** (`gzip` feature, `dep:flate2`)                   | `Cargo.toml`, `src/layer.rs`                   | `dump_to_file_gz_writes_valid_gzip_that_decompresses`, `dump_envelope_to_file_gz_decompresses_to_valid_envelope`, `on_dump_reports_compressed_bytes_for_gz` | `dump_to_file_gz` + `dump_envelope_to_file_gz`. Verifies gzip magic bytes, round-trip decompress, and that `on_dump` reports compressed byte count.                                                                                                    |
+| **Observability hooks** (`DumpEvent` + `DumpSource` + `with_on_dump`) | `src/capture.rs`, `src/layer.rs`, `src/lib.rs` | `on_dump_fires_for_manual_file_dump`, `on_dump_fires_for_trigger_dump_with_trigger_source`, `on_dump_callback_panic_is_contained`                           | Callback fires on every file-writing dump (manual + trigger). `DumpSource::Manual` vs `DumpSource::Trigger`. Panicking callback is `catch_unwind`-contained. Shared via `Arc` across clones.                                                           |
+| **Compact-by-default JSON** (BREAKING → 0.3.0)                        | `src/layer.rs`                                 | `dump_to_json_is_compact_and_pretty_variant_indents`, `envelope_pretty_variant_indents_and_round_trips`                                                     | `dump_to_json`/`dump_to_writer`/`dump_to_file`/`dump_envelope_to_*` now emit compact. New `_pretty` companions: `dump_to_json_pretty`, `dump_to_writer_pretty`, `dump_to_file_pretty`, `dump_envelope_to_json_pretty`, `dump_envelope_to_file_pretty`. |
+| **Criterion benchmarks**                                              | `benches/push_dump.rs`, `Cargo.toml`           | Smoke-tested with `--quick`                                                                                                                                 | Covers `on_event` (100/1k/10k events), `snapshot` (1k/10k), `dump_to_json` (1k). Baseline: on_event ≈ 290 ns/event, snapshot 1k ≈ 280 µs, dump_to_json 1k ≈ 809 µs. Uses `harness = false`.                                                            |
+| **Allocation profiling**                                              | `src/layer_tests.rs`                           | `profile_allocations_on_event_hot_path` (`#[ignore]`)                                                                                                       | Counting `#[global_allocator]` wrapping `System`. Hot path: ~9 allocs/event. `#[ignore]`d because global counter is perturbed by parallel tests. Run with `--ignored --nocapture`.                                                                     |
 
 ### Tests (coverage hardening)
 
-| Test | File | What it covers |
-|------|------|----------------|
-| `deeply_nested_spans_captures_full_hierarchy` | `layer_tests.rs` | 12-level span nesting — stresses `from_root()` walking; verifies root-first ordering + per-level `id` field |
-| `i128_and_u128_field_boundary_values_round_trip` | `layer_tests.rs` | `i128::MIN`, `i128::MAX`, `u128::MAX`, `0u128` — verifies `record_i128`/`record_u128` + `to_string` round-trip |
-| `dump_to_file_into_readonly_directory_returns_error` | `layer_tests.rs` | Permission-denied path (Unix `chmod 0o500`); verifies error propagation, no panic, no file written |
-| `redaction_matches_reference_implementation` | `capture.rs` | `proptest` (512 cases) cross-validating zero-alloc `windows()`+`eq_ignore_ascii_case` matcher vs independent `to_lowercase().contains` reference |
+| Test                                                 | File             | What it covers                                                                                                                                   |
+| ---------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `deeply_nested_spans_captures_full_hierarchy`        | `layer_tests.rs` | 12-level span nesting — stresses `from_root()` walking; verifies root-first ordering + per-level `id` field                                      |
+| `i128_and_u128_field_boundary_values_round_trip`     | `layer_tests.rs` | `i128::MIN`, `i128::MAX`, `u128::MAX`, `0u128` — verifies `record_i128`/`record_u128` + `to_string` round-trip                                   |
+| `dump_to_file_into_readonly_directory_returns_error` | `layer_tests.rs` | Permission-denied path (Unix `chmod 0o500`); verifies error propagation, no panic, no file written                                               |
+| `redaction_matches_reference_implementation`         | `capture.rs`     | `proptest` (512 cases) cross-validating zero-alloc `windows()`+`eq_ignore_ascii_case` matcher vs independent `to_lowercase().contains` reference |
 
 ### Documentation synced
 
-| File | What changed |
-|------|--------------|
-| `CHANGELOG.md` | `[Unreleased]` section for 0.3.0: all added features + breaking compact-default change |
-| `FEATURES.md` | Output & Persistence section updated (compact/pretty, gzip); new Observability section |
-| `TODO_LIST.md` | Shipped items removed; `DEFERRED`/`REJECTED` items documented with reasoning; legend updated |
-| `ROADMAP.md` | Shipped items removed from raw ideas; `no_std` rejection documented in non-goals |
-| `README.md` | Features list updated; new Compression & Observability section with code examples |
-| `AGENTS.md` | Commands (bench/profiling), file table (DumpEvent/gzip/compact), conventions (gzip feature, compact default, hook-firing core), testing approach (benchmarks, profiling, edge cases) |
-| `CONTRIBUTING.md` | Test-gate command updated (removed stale "64 unit + 6 doctests" count) |
+| File              | What changed                                                                                                                                                                         |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `CHANGELOG.md`    | `[Unreleased]` section for 0.3.0: all added features + breaking compact-default change                                                                                               |
+| `FEATURES.md`     | Output & Persistence section updated (compact/pretty, gzip); new Observability section                                                                                               |
+| `TODO_LIST.md`    | Shipped items removed; `DEFERRED`/`REJECTED` items documented with reasoning; legend updated                                                                                         |
+| `ROADMAP.md`      | Shipped items removed from raw ideas; `no_std` rejection documented in non-goals                                                                                                     |
+| `README.md`       | Features list updated; new Compression & Observability section with code examples                                                                                                    |
+| `AGENTS.md`       | Commands (bench/profiling), file table (DumpEvent/gzip/compact), conventions (gzip feature, compact default, hook-firing core), testing approach (benchmarks, profiling, edge cases) |
+| `CONTRIBUTING.md` | Test-gate command updated (removed stale "64 unit + 6 doctests" count)                                                                                                               |
 
 ---
 
 ## b) PARTIALLY DONE (Functional but with gaps)
 
 ### Observability hooks — missing coverage paths
+
 - **`on_dump` is not tested for `dump_with_retention` or `dump_with_retention_envelope`.** Both go through `retention_write` → `write_and_report` → `report`, which IS tested via `dump_to_file` (manual) and the trigger path. But there's no explicit retention-path test.
 - **`on_dump` is not tested for `dump_envelope_to_file` specifically.** Same shared code path, but no dedicated test.
 - **`dump_to_writer_pretty` has no test.** The compact `dump_to_writer` is tested; the pretty variant is just `to_writer_pretty` instead of `to_writer` — trivially different, but still untested.
 
 ### Gzip — missing trigger/retention integration
+
 - **No `dump_with_retention_gz` or trigger-path gzip.** The `gzip` feature only covers manual `dump_to_file_gz` / `dump_envelope_to_file_gz`. The trigger system's `fire_dump` → `retention_write` → `write_and_report` is always uncompressed. Someone who wants compressed automatic trigger dumps cannot get them today.
 - **No `_gz` variant for retention dumps at all.**
 
 ### Benchmarks — incomplete coverage
+
 - **No span-context-capture benchmark.** The `on_event` benchmark captures events without spans. The span-walking overhead (scope iteration + extension lookup per event) is not measured in isolation.
 - **No gzip benchmark.** Compression cost is unmeasured.
 - **No `dump_to_json_pretty` vs `dump_to_json` comparison.** The pretty path is ~2-3× larger output but the serialization cost difference is unmeasured.
@@ -63,13 +66,13 @@
 
 ## c) NOT STARTED (Explicitly deferred with reasoning)
 
-| Item | Why deferred |
-|------|-------------|
-| **Async/non-blocking capture** | Deferred to v0.3.0 scope — non-trivial lifecycle change (join/drain semantics, backpressure). Needs its own release focus. |
-| **`parking_lot::Mutex`** | Deferred to v0.4.0 scope — batch with other lock-related perf work. |
-| **`Arc<CapturedEvent>` in buffer** | Deferred to v0.4.0 scope — batch with parking_lot. |
-| **`SmallVec` for fields** | **Rejected for now.** Changing `fields` from `Vec` to `SmallVec` is a breaking public-type change AND breaks the `utoipa::ToSchema` derive (no built-in SmallVec schema). Revisit only with custom schema + major version. |
-| **`no_std` compatibility** | **Rejected short-term.** Depends on `chrono` (wall-clock), `std::sync::Mutex` (shared buffer), `std::fs` (file dumps). Would need spin/critical-section mutex, timestamp abstraction, filesystem API feature-gating. Not actionable until a concrete embedded use case demands it. |
+| Item                               | Why deferred                                                                                                                                                                                                                                                                       |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Async/non-blocking capture**     | Deferred to v0.3.0 scope — non-trivial lifecycle change (join/drain semantics, backpressure). Needs its own release focus.                                                                                                                                                         |
+| **`parking_lot::Mutex`**           | Deferred to v0.4.0 scope — batch with other lock-related perf work.                                                                                                                                                                                                                |
+| **`Arc<CapturedEvent>` in buffer** | Deferred to v0.4.0 scope — batch with parking_lot.                                                                                                                                                                                                                                 |
+| **`SmallVec` for fields**          | **Rejected for now.** Changing `fields` from `Vec` to `SmallVec` is a breaking public-type change AND breaks the `utoipa::ToSchema` derive (no built-in SmallVec schema). Revisit only with custom schema + major version.                                                         |
+| **`no_std` compatibility**         | **Rejected short-term.** Depends on `chrono` (wall-clock), `std::sync::Mutex` (shared buffer), `std::fs` (file dumps). Would need spin/critical-section mutex, timestamp abstraction, filesystem API feature-gating. Not actionable until a concrete embedded use case demands it. |
 
 ---
 
@@ -121,6 +124,7 @@
 ## f) Up to 50 Things to Do Next
 
 ### Release blockers for 0.3.0
+
 1. Bump `Cargo.toml` version to `0.3.0`
 2. Update CHANGELOG `[Unreleased]` → `[0.3.0]` with date
 3. Update CHANGELOG link references (`[Unreleased]`, `[0.3.0]`)
@@ -131,6 +135,7 @@
 8. Tag `v0.3.0` and push to trigger automated crates.io publish
 
 ### Test coverage gaps to close
+
 9. `on_dump` test for `dump_with_retention` path
 10. `on_dump` test for `dump_envelope_to_file` path
 11. `dump_to_writer_pretty` produces valid indented JSON
@@ -144,6 +149,7 @@
 19. `dump_envelope_to_json_pretty` round-trips through typed `FlightRecorderDump`
 
 ### Feature gaps to close
+
 20. `dump_with_retention_gz` — retention dumps with gzip compression
 21. Trigger-path gzip: `with_dump_on` with compression option
 22. `examples/compression.rs` — runnable gzip dump example
@@ -155,6 +161,7 @@
 28. `FlightRecorder::drain()` — take ownership of all events
 
 ### Performance
+
 29. Span-context-capture benchmark (on_event with nested spans vs without)
 30. Gzip compression benchmark (dump_to_file vs dump_to_file_gz)
 31. Pretty vs compact JSON serialization benchmark
@@ -168,6 +175,7 @@
 39. Thread-local event recycling pool
 
 ### CI / tooling
+
 40. Add `cargo bench --no-run` to CI (compile check for benchmarks)
 41. Add `cargo deny check` step to CI (if not already present)
 42. Add benchmark regression gate (optional, CI threshold check)
@@ -177,6 +185,7 @@
 46. Add `perf`/`dhat` profiling instructions to CONTRIBUTING.md
 
 ### Future features (v0.4.0+)
+
 47. Chrome Trace Event format output (`chrome://tracing`)
 48. `tower` middleware that dumps on `Response` error status
 49. Panic-hook integration that dumps before process exits
@@ -193,6 +202,7 @@ The compact-default change is breaking, and the new features (gzip, on_dump) are
 ### 2. Trigger-path compression API shape
 
 Should gzip compression on the trigger path be:
+
 - **(a)** A boolean flag on `with_dump_on` (e.g. `with_dump_on(trigger, dir, prefix, max_files, compressed: bool)`)
 - **(b)** A separate method `with_dump_on_gz`
 - **(c)** A layer-level config (`with_compression(Compression::Gzip)`) that applies to all dumps including manual
@@ -211,22 +221,22 @@ Currently `DumpEvent` has `bytes_written`, `duration`, `path`, `trigger_reason`,
 **Commit:** `34ab131` (auto-committed by daemon)
 **15 files changed, +1639 lines, -64 lines**
 
-| File | Change |
-|------|--------|
-| `Cargo.toml` | +`gzip` feature, +`flate2` optional dep, +`criterion` dev-dep, +`[[bench]]` section, docs.rs features update |
-| `Cargo.lock` | +337 lines (flate2 + criterion transitive deps) |
-| `src/capture.rs` | +`DumpEvent`, +`DumpSource`, +redaction proptest (512 cases), +`PathBuf`/`Duration` imports |
-| `src/layer.rs` | +`DumpHook` type alias, +`on_dump` field on `FlightRecorder`, +`with_on_dump`, +compact/pretty split for all dump methods, +`_gz` variants, +`write_and_report`/`write_gz_and_report`/`retention_write`/`report` hook core, +`gzip_encode`/`write_bytes_file` helpers, refactored `fire_dump` to report `DumpSource::Trigger` |
-| `src/layer_tests.rs` | +4 edge tests, +3 on_dump tests, +3 gzip tests, +2 compact/pretty tests, +counting allocator + profiling test |
-| `src/lib.rs` | +`DumpEvent`/`DumpSource` re-exports |
-| `benches/push_dump.rs` | New file — criterion benchmarks |
-| `README.md` | +Features list update, +Compression & Observability section |
-| `CHANGELOG.md` | +`[Unreleased]` for 0.3.0 |
-| `FEATURES.md` | +compact/pretty/gzip/observability rows |
-| `TODO_LIST.md` | Shipped items removed, deferrals documented |
-| `ROADMAP.md` | Shipped items removed, no_std rejection documented |
-| `AGENTS.md` | +Commands, file table, conventions, testing approach updates |
-| `CONTRIBUTING.md` | Test-gate command updated |
+| File                   | Change                                                                                                                                                                                                                                                                                                                        |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Cargo.toml`           | +`gzip` feature, +`flate2` optional dep, +`criterion` dev-dep, +`[[bench]]` section, docs.rs features update                                                                                                                                                                                                                  |
+| `Cargo.lock`           | +337 lines (flate2 + criterion transitive deps)                                                                                                                                                                                                                                                                               |
+| `src/capture.rs`       | +`DumpEvent`, +`DumpSource`, +redaction proptest (512 cases), +`PathBuf`/`Duration` imports                                                                                                                                                                                                                                   |
+| `src/layer.rs`         | +`DumpHook` type alias, +`on_dump` field on `FlightRecorder`, +`with_on_dump`, +compact/pretty split for all dump methods, +`_gz` variants, +`write_and_report`/`write_gz_and_report`/`retention_write`/`report` hook core, +`gzip_encode`/`write_bytes_file` helpers, refactored `fire_dump` to report `DumpSource::Trigger` |
+| `src/layer_tests.rs`   | +4 edge tests, +3 on_dump tests, +3 gzip tests, +2 compact/pretty tests, +counting allocator + profiling test                                                                                                                                                                                                                 |
+| `src/lib.rs`           | +`DumpEvent`/`DumpSource` re-exports                                                                                                                                                                                                                                                                                          |
+| `benches/push_dump.rs` | New file — criterion benchmarks                                                                                                                                                                                                                                                                                               |
+| `README.md`            | +Features list update, +Compression & Observability section                                                                                                                                                                                                                                                                   |
+| `CHANGELOG.md`         | +`[Unreleased]` for 0.3.0                                                                                                                                                                                                                                                                                                     |
+| `FEATURES.md`          | +compact/pretty/gzip/observability rows                                                                                                                                                                                                                                                                                       |
+| `TODO_LIST.md`         | Shipped items removed, deferrals documented                                                                                                                                                                                                                                                                                   |
+| `ROADMAP.md`           | Shipped items removed, no_std rejection documented                                                                                                                                                                                                                                                                            |
+| `AGENTS.md`            | +Commands, file table, conventions, testing approach updates                                                                                                                                                                                                                                                                  |
+| `CONTRIBUTING.md`      | Test-gate command updated                                                                                                                                                                                                                                                                                                     |
 
 ---
 
@@ -251,19 +261,19 @@ cargo test profile_allocations -- --ignored --nocapture → ~9 allocs/event
 
 All Medium/Low Impact features shipped. Some test/feature gaps remain open in `TODO_LIST.md`.
 
-| Finding | Resolution | Commit / Status |
-|---------|-----------|-----------------|
-| Gzip compression | ~~TODO~~ done — `gzip` feature, `dump_to_file_gz`/`dump_envelope_to_file_gz` | `34ab131` |
-| Observability hooks | ~~TODO~~ done — `on_dump` callback, `DumpEvent`/`DumpSource` | `34ab131` |
-| Compact-by-default JSON | ~~TODO~~ done — BREAKING, `_pretty` companions added | `34ab131` |
-| Criterion benchmarks | ~~TODO~~ done — `benches/push_dump.rs` | `34ab131` |
-| Allocation profiling | ~~TODO~~ done — counting allocator, ~9 allocs/event | `34ab131` |
-| Edge-case tests | ~~TODO~~ done — nested spans, i128/u128, read-only dir | `34ab131` |
-| Redaction fuzz test | ~~TODO~~ done — proptest 512 cases | `34ab131` |
-| on_dump untested for retention/envelope | **Still open** — tracked in `TODO_LIST.md` Medium Impact | — |
-| Pretty-variant test gaps | **Still open** — tracked in `TODO_LIST.md` Medium Impact | — |
-| No gzip/observability examples | **Still open** — tracked in `TODO_LIST.md` Medium Impact | — |
-| No trigger-path gzip | **Still open** — tracked in `TODO_LIST.md` Low Impact | — |
-| `FlightRecorderBuilder` | **Still open** — tracked in `TODO_LIST.md` Low Impact | — |
-| v0.2.0 + v0.3.0 not tagged | **Still open** — tracked in `TODO_LIST.md` Release | — |
-| All 50 "next things" brainstorm | Open items tracked in `TODO_LIST.md`. Long-term items in `ROADMAP.md`. | — |
+| Finding                                 | Resolution                                                                   | Commit / Status |
+| --------------------------------------- | ---------------------------------------------------------------------------- | --------------- |
+| Gzip compression                        | ~~TODO~~ done — `gzip` feature, `dump_to_file_gz`/`dump_envelope_to_file_gz` | `34ab131`       |
+| Observability hooks                     | ~~TODO~~ done — `on_dump` callback, `DumpEvent`/`DumpSource`                 | `34ab131`       |
+| Compact-by-default JSON                 | ~~TODO~~ done — BREAKING, `_pretty` companions added                         | `34ab131`       |
+| Criterion benchmarks                    | ~~TODO~~ done — `benches/push_dump.rs`                                       | `34ab131`       |
+| Allocation profiling                    | ~~TODO~~ done — counting allocator, ~9 allocs/event                          | `34ab131`       |
+| Edge-case tests                         | ~~TODO~~ done — nested spans, i128/u128, read-only dir                       | `34ab131`       |
+| Redaction fuzz test                     | ~~TODO~~ done — proptest 512 cases                                           | `34ab131`       |
+| on_dump untested for retention/envelope | **Still open** — tracked in `TODO_LIST.md` Medium Impact                     | —               |
+| Pretty-variant test gaps                | **Still open** — tracked in `TODO_LIST.md` Medium Impact                     | —               |
+| No gzip/observability examples          | **Still open** — tracked in `TODO_LIST.md` Medium Impact                     | —               |
+| No trigger-path gzip                    | **Still open** — tracked in `TODO_LIST.md` Low Impact                        | —               |
+| `FlightRecorderBuilder`                 | **Still open** — tracked in `TODO_LIST.md` Low Impact                        | —               |
+| v0.2.0 + v0.3.0 not tagged              | **Still open** — tracked in `TODO_LIST.md` Release                           | —               |
+| All 50 "next things" brainstorm         | Open items tracked in `TODO_LIST.md`. Long-term items in `ROADMAP.md`.       | —               |

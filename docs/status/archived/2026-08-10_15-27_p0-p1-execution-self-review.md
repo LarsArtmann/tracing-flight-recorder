@@ -113,13 +113,13 @@ The plan specified "after each tier: update TODO_LIST.md, append to CHANGELOG.md
 Several `layer.rs` citations are already wrong because M5's collision guard
 inserted ~15 lines, shifting everything after line 140:
 
-| Doc claims | Actual line | Off by |
-|-----------|-------------|--------|
-| `dump_with_retention` → layer.rs:132 | 134 | +2 |
-| `dir` parameter → layer.rs:134 | 136 | +2 |
-| `FlightRecorderLayer` → layer.rs:206 | 220 | +14 |
-| `impl Layer` → layer.rs:224 | 238 | +14 |
-| doc comment → layer.rs:201 | 215 | +14 |
+| Doc claims                           | Actual line | Off by |
+| ------------------------------------ | ----------- | ------ |
+| `dump_with_retention` → layer.rs:132 | 134         | +2     |
+| `dir` parameter → layer.rs:134       | 136         | +2     |
+| `FlightRecorderLayer` → layer.rs:206 | 220         | +14    |
+| `impl Layer` → layer.rs:224          | 238         | +14    |
+| doc comment → layer.rs:201           | 215         | +14    |
 
 FEATURES.md has the same drift on `layer.rs:228` (on_event is now at line 242).
 
@@ -129,14 +129,14 @@ FEATURES.md has the same drift on `layer.rs:228` (on_event is now at line 242).
 
 ### P2 (M8-M13) — Release Preparation
 
-| ID | Task | Status |
-|----|------|--------|
-| M8 | Test hardening (poison-recovery, Unicode redaction, nested-dir dump, non-json retention filtering) | Not started |
-| M9 | Concurrency + property tests (proptest eviction invariant, multi-thread stress) | Not started |
-| M10 | Release metadata (Cargo.lock policy, `cargo publish --dry-run`, keywords/categories audit) | Not started |
-| M11 | v0.1.0 release cut (CHANGELOG versioned section, tag) | Not started |
-| M12 | Docs polish (data-flow diagram, cross-links, CONTRIBUTING, re-VERIFY docs-health) | Not started |
-| M13 | `#[must_use]` audit + measured memory footprint | Not started |
+| ID  | Task                                                                                               | Status      |
+| --- | -------------------------------------------------------------------------------------------------- | ----------- |
+| M8  | Test hardening (poison-recovery, Unicode redaction, nested-dir dump, non-json retention filtering) | Not started |
+| M9  | Concurrency + property tests (proptest eviction invariant, multi-thread stress)                    | Not started |
+| M10 | Release metadata (Cargo.lock policy, `cargo publish --dry-run`, keywords/categories audit)         | Not started |
+| M11 | v0.1.0 release cut (CHANGELOG versioned section, tag)                                              | Not started |
+| M12 | Docs polish (data-flow diagram, cross-links, CONTRIBUTING, re-VERIFY docs-health)                  | Not started |
+| M13 | `#[must_use]` audit + measured memory footprint                                                    | Not started |
 
 ### P3 (M14-M22) — v0.2+ Roadmap Spikes
 
@@ -200,6 +200,7 @@ path is particularly easy to accidentally commit.
 ### 5. DOMAIN_LANGUAGE.md `layer.rs:132` Citation — Double Wrong
 
 I cited `dump_with_retention` at `layer.rs:132`. But:
+
 - When I wrote it, the function was already at line 132 (pre-M5 edit)
 - After M5's collision guard edit, it moved to line 134
 - So it was correct when written, but I wrote it in the same session as the
@@ -268,73 +269,73 @@ self-review, then P3 spikes.
 
 ### Immediate Fixes (This Session's Debt)
 
-| # | Task | Impact | Effort |
-|---|------|--------|--------|
-| 1 | Update FEATURES.md: OpenAPI row → 🟢 FULLY_FUNCTIONAL, update "no test" note, fix line refs | High | 5min |
-| 2 | Update TODO_LIST.md: mark 4 completed items as DONE or remove them | High | 5min |
-| 3 | Append CHANGELOG.md [Unreleased] entries for all M1-M7 work | High | 10min |
-| 4 | Fix line-number drift in DOMAIN_LANGUAGE.md (6 citations shifted) | Med | 5min |
-| 5 | Fix line-number drift in FEATURES.md (at least 2 citations shifted) | Med | 5min |
-| 6 | Add `minimal-dump.json` and `diagnostics-example/` to `.gitignore` | Med | 2min |
-| 7 | Make `_ReadmeDoctests` struct private (remove `pub`) | Low | 1min |
-| 8 | Commit P0 changes (M1+M2) as one atomic commit | High | 5min |
-| 9 | Commit P1 changes (M3-M7) as one atomic commit | High | 5min |
+| # | Task                                                                                        | Impact | Effort |
+| - | ------------------------------------------------------------------------------------------- | ------ | ------ |
+| 1 | Update FEATURES.md: OpenAPI row → 🟢 FULLY_FUNCTIONAL, update "no test" note, fix line refs | High   | 5min   |
+| 2 | Update TODO_LIST.md: mark 4 completed items as DONE or remove them                          | High   | 5min   |
+| 3 | Append CHANGELOG.md [Unreleased] entries for all M1-M7 work                                 | High   | 10min  |
+| 4 | Fix line-number drift in DOMAIN_LANGUAGE.md (6 citations shifted)                           | Med    | 5min   |
+| 5 | Fix line-number drift in FEATURES.md (at least 2 citations shifted)                         | Med    | 5min   |
+| 6 | Add `minimal-dump.json` and `diagnostics-example/` to `.gitignore`                          | Med    | 2min   |
+| 7 | Make `_ReadmeDoctests` struct private (remove `pub`)                                        | Low    | 1min   |
+| 8 | Commit P0 changes (M1+M2) as one atomic commit                                              | High   | 5min   |
+| 9 | Commit P1 changes (M3-M7) as one atomic commit                                              | High   | 5min   |
 
 ### P2 — Release Preparation (from Pareto plan)
 
-| # | Task | Impact | Effort |
-|---|------|--------|--------|
-| 10 | M8: Poison-recovery test (panicked thread → recorder still usable) | Med | 15min |
-| 11 | M8: Unicode field name redaction test | Low-Med | 10min |
-| 12 | M8: Nested-dir dump test (deep `dump_to_file` path) | Low-Med | 10min |
-| 13 | M8: Non-JSON retention filtering test (non-.json files survive pruning) | Low-Med | 10min |
-| 14 | M9: Add `proptest` dev-dep + eviction invariant property test | Med | 25min |
-| 15 | M9: Multi-thread stress test (N threads pushing concurrently) | Med | 20min |
-| 16 | M13: `#[must_use]` audit — verify all constructors and accessors have it | Med | 10min |
-| 17 | M13: Measure actual memory footprint of 1000-event buffer vs README claim | Med | 15min |
-| 18 | M10: Decide Cargo.lock policy (commit or not for a library) | Med | 5min |
-| 19 | M10: Run `cargo publish --dry-run` and fix any packaging issues | High | 15min |
-| 20 | M10: Audit `exclude` list in Cargo.toml (should `/docs` be excluded?) | Low-Med | 10min |
-| 21 | M11: Write `## [0.1.0] - <date>` CHANGELOG section (if releasing soon) | High | 15min |
-| 22 | M11: Add crate-level doc-test that verifies the core API workflow | Med | 15min |
-| 23 | M11: Tag v0.1.0 (after all P2 passes) | High | 5min |
-| 24 | M12: Create CONTRIBUTING.md | Med | 20min |
-| 25 | M12: Add data-flow diagram (Event → FieldVisitor → CapturedEvent → VecDeque → dump) | Med | 20min |
-| 26 | M12: Cross-link FEATURES.md rows ↔ source functions | Low-Med | 15min |
-| 27 | M12: Re-run docs-health VERIFY — target Fitness 10.0 | Med | 10min |
-| 28 | M12: Batch-refresh ALL line-number citations across all docs | Med | 15min |
+| #  | Task                                                                                | Impact  | Effort |
+| -- | ----------------------------------------------------------------------------------- | ------- | ------ |
+| 10 | M8: Poison-recovery test (panicked thread → recorder still usable)                  | Med     | 15min  |
+| 11 | M8: Unicode field name redaction test                                               | Low-Med | 10min  |
+| 12 | M8: Nested-dir dump test (deep `dump_to_file` path)                                 | Low-Med | 10min  |
+| 13 | M8: Non-JSON retention filtering test (non-.json files survive pruning)             | Low-Med | 10min  |
+| 14 | M9: Add `proptest` dev-dep + eviction invariant property test                       | Med     | 25min  |
+| 15 | M9: Multi-thread stress test (N threads pushing concurrently)                       | Med     | 20min  |
+| 16 | M13: `#[must_use]` audit — verify all constructors and accessors have it            | Med     | 10min  |
+| 17 | M13: Measure actual memory footprint of 1000-event buffer vs README claim           | Med     | 15min  |
+| 18 | M10: Decide Cargo.lock policy (commit or not for a library)                         | Med     | 5min   |
+| 19 | M10: Run `cargo publish --dry-run` and fix any packaging issues                     | High    | 15min  |
+| 20 | M10: Audit `exclude` list in Cargo.toml (should `/docs` be excluded?)               | Low-Med | 10min  |
+| 21 | M11: Write `## [0.1.0] - <date>` CHANGELOG section (if releasing soon)              | High    | 15min  |
+| 22 | M11: Add crate-level doc-test that verifies the core API workflow                   | Med     | 15min  |
+| 23 | M11: Tag v0.1.0 (after all P2 passes)                                               | High    | 5min   |
+| 24 | M12: Create CONTRIBUTING.md                                                         | Med     | 20min  |
+| 25 | M12: Add data-flow diagram (Event → FieldVisitor → CapturedEvent → VecDeque → dump) | Med     | 20min  |
+| 26 | M12: Cross-link FEATURES.md rows ↔ source functions                                 | Low-Med | 15min  |
+| 27 | M12: Re-run docs-health VERIFY — target Fitness 10.0                                | Med     | 10min  |
+| 28 | M12: Batch-refresh ALL line-number citations across all docs                        | Med     | 15min  |
 
 ### Hardening & Polish
 
-| # | Task | Impact | Effort |
-|---|------|--------|--------|
-| 29 | Add collision counter upper bound in `dump_with_retention` (break at 9999) | Low | 5min |
-| 30 | Test collision guard sorting behavior in retention cleanup | Low-Med | 10min |
-| 31 | Add `cargo publish --dry-run` to CI workflow | Med | 10min |
-| 32 | Change examples to write artifacts to temp_dir instead of repo root | Low | 10min |
-| 33 | Add security audit (`cargo audit`) to CI | Med | 10min |
-| 34 | Add `dependabot.yml` for automated dependency updates | Low-Med | 10min |
-| 35 | Verify MSRV 1.86 actually works with all deps (utoipa 5 may need higher) | Med | 15min |
-| 36 | Add dependabot or renovate config | Low | 10min |
-| 37 | Consider `#![doc(html_root_url = "...")]` for stable doc links | Low | 5min |
+| #  | Task                                                                       | Impact  | Effort |
+| -- | -------------------------------------------------------------------------- | ------- | ------ |
+| 29 | Add collision counter upper bound in `dump_with_retention` (break at 9999) | Low     | 5min   |
+| 30 | Test collision guard sorting behavior in retention cleanup                 | Low-Med | 10min  |
+| 31 | Add `cargo publish --dry-run` to CI workflow                               | Med     | 10min  |
+| 32 | Change examples to write artifacts to temp_dir instead of repo root        | Low     | 10min  |
+| 33 | Add security audit (`cargo audit`) to CI                                   | Med     | 10min  |
+| 34 | Add `dependabot.yml` for automated dependency updates                      | Low-Med | 10min  |
+| 35 | Verify MSRV 1.86 actually works with all deps (utoipa 5 may need higher)   | Med     | 15min  |
+| 36 | Add dependabot or renovate config                                          | Low     | 10min  |
+| 37 | Consider `#![doc(html_root_url = "...")]` for stable doc links             | Low     | 5min   |
 
 ### P3 — v0.2+ Roadmap Spikes
 
-| # | Task | Impact | Effort |
-|---|------|--------|--------|
-| 38 | M14: Design time-based eviction (time-windowed capture) | High | 50min |
-| 39 | M14: Prototype hybrid eviction (count + time) | Med | 30min |
-| 40 | M14: Add buffer time-span metadata ("oldest event is N seconds old") | Med | 20min |
-| 41 | M15: Set up `criterion` benchmark baseline for hot path | Med | 30min |
-| 42 | M15: Benchmark `on_event` → `push` latency under load | Med | 25min |
-| 43 | M16: Spike `parking_lot::Mutex` vs `std::sync::Mutex` | Med | 45min |
-| 44 | M16: Evaluate lock-free ring buffer design | Med | 40min |
-| 45 | M17: Allocation-reduction prototype (reuse field buffer) | Med | 45min |
-| 46 | M17: Zero-copy snapshot prototype (return iterator, not Vec) | Med | 40min |
-| 47 | M20: Panic-hook integration (auto-dump on panic) | High | 30min |
-| 48 | M22: `fr_on_error!` macro helper | Low-Med | 20min |
-| 49 | M21: `tower` middleware layer for auto-dump on error responses | High | 50min |
-| 50 | M21: `axum` integration example with auto-dump on 5xx | Med | 30min |
+| #  | Task                                                                 | Impact  | Effort |
+| -- | -------------------------------------------------------------------- | ------- | ------ |
+| 38 | M14: Design time-based eviction (time-windowed capture)              | High    | 50min  |
+| 39 | M14: Prototype hybrid eviction (count + time)                        | Med     | 30min  |
+| 40 | M14: Add buffer time-span metadata ("oldest event is N seconds old") | Med     | 20min  |
+| 41 | M15: Set up `criterion` benchmark baseline for hot path              | Med     | 30min  |
+| 42 | M15: Benchmark `on_event` → `push` latency under load                | Med     | 25min  |
+| 43 | M16: Spike `parking_lot::Mutex` vs `std::sync::Mutex`                | Med     | 45min  |
+| 44 | M16: Evaluate lock-free ring buffer design                           | Med     | 40min  |
+| 45 | M17: Allocation-reduction prototype (reuse field buffer)             | Med     | 45min  |
+| 46 | M17: Zero-copy snapshot prototype (return iterator, not Vec)         | Med     | 40min  |
+| 47 | M20: Panic-hook integration (auto-dump on panic)                     | High    | 30min  |
+| 48 | M22: `fr_on_error!` macro helper                                     | Low-Med | 20min  |
+| 49 | M21: `tower` middleware layer for auto-dump on error responses       | High    | 50min  |
+| 50 | M21: `axum` integration example with auto-dump on 5xx                | Med     | 30min  |
 
 ---
 
@@ -344,6 +345,7 @@ self-review, then P3 spikes.
 
 All P0+P1 work is staged but uncommitted (10 files changed). I have not committed
 anything this session. Should I:
+
 - **(A)** Commit P0 and P1 as two separate atomic commits now, then continue to P2?
 - **(B)** Fix the doc drift first (items 1-7 in the "Immediate Fixes" table), then commit everything as one?
 - **(C)** Continue all the way through P2 before committing anything?
@@ -364,7 +366,7 @@ hardening + docs first.
 
 ---
 
-*Generated by self-review. Brutal where it counts.*
+_Generated by self-review. Brutal where it counts._
 
 ---
 
@@ -372,11 +374,11 @@ hardening + docs first.
 
 All P0+P1 work (M1–M7) shipped and committed. Doc drift fixed in sessions 3–6.
 
-| Finding | Resolution | Commit |
-|---------|-----------|--------|
-| Nothing committed this session | All M1–M7 work committed | `b688c4d`, `ca57896` |
-| No git remote configured | Remote configured, crate published to crates.io | `dd6d2bb` |
-| TODO_LIST phantom TODOs (4 items done but not marked) | Fixed — done items removed across sessions 3–6 | — |
-| FEATURES.md OpenAPI still `PARTIALLY_FUNCTIONAL` | Promoted to `FULLY_FUNCTIONAL` (integration test added) | `36af9c8` |
-| CHANGELOG missing M1–M7 entries | Added — see `[0.1.0]` in `CHANGELOG.md` | `36af9c8` |
-| All 50 "next things" brainstorm | Items picked up by sessions 3–12. Remaining open items in `TODO_LIST.md`. | — |
+| Finding                                               | Resolution                                                                | Commit               |
+| ----------------------------------------------------- | ------------------------------------------------------------------------- | -------------------- |
+| Nothing committed this session                        | All M1–M7 work committed                                                  | `b688c4d`, `ca57896` |
+| No git remote configured                              | Remote configured, crate published to crates.io                           | `dd6d2bb`            |
+| TODO_LIST phantom TODOs (4 items done but not marked) | Fixed — done items removed across sessions 3–6                            | —                    |
+| FEATURES.md OpenAPI still `PARTIALLY_FUNCTIONAL`      | Promoted to `FULLY_FUNCTIONAL` (integration test added)                   | `36af9c8`            |
+| CHANGELOG missing M1–M7 entries                       | Added — see `[0.1.0]` in `CHANGELOG.md`                                   | `36af9c8`            |
+| All 50 "next things" brainstorm                       | Items picked up by sessions 3–12. Remaining open items in `TODO_LIST.md`. | —                    |

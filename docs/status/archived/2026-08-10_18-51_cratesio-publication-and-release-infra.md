@@ -16,6 +16,7 @@ process was studied and its best patterns were ported: `docs/RELEASE.md`,
 docs.rs metadata, README badges, and `cargo-deny`/`cargo-audit` in CI.
 
 The crate is live at:
+
 - **crates.io:** https://crates.io/crates/tracing-flight-recorder (v0.1.0, 26KB)
 - **docs.rs:** https://docs.rs/tracing-flight-recorder (built successfully with openapi feature)
 - **GitHub:** https://github.com/LarsArtmann/tracing-flight-recorder (public, 7 topics)
@@ -54,8 +55,8 @@ the release infrastructure commit), the ROADMAP section 5 is stale again, and
 - **`[lints.rust]`** — `unexpected_cfgs` check-cfg for `docsrs`.
 - **`documentation` field** — Added to Cargo.toml pointing to `https://docs.rs/tracing-flight-recorder`.
 - **README badges** — crates.io, docs.rs, CI, MSRV 1.86, Apache-2.0 license.
-- **ROADMAP section 5 updated** — Marked v0.1.0 as tagged, removed done items. *(But see section d — it's already stale again.)*
-- **CHANGELOG package size claim fixed** — Updated to "150.9KiB → 81.7KiB, 23 → 16 files". *(But see section d — it's wrong again.)*
+- **ROADMAP section 5 updated** — Marked v0.1.0 as tagged, removed done items. _(But see section d — it's already stale again.)_
+- **CHANGELOG package size claim fixed** — Updated to "150.9KiB → 81.7KiB, 23 → 16 files". _(But see section d — it's wrong again.)_
 - **AGENTS.md** — Added "Release Infrastructure" section documenting all new files.
 
 ### crates.io Publication
@@ -77,6 +78,7 @@ the release infrastructure commit), the ROADMAP section 5 is stale again, and
 ### CI Verified on GitHub
 
 All 6 jobs green on the `dd6d2bb` push:
+
 - Test + Clippy + Fmt (stable) ✅ 45s
 - Test + Clippy + Fmt (beta) ✅ 43s
 - MSRV (1.86) ✅ 46s
@@ -103,6 +105,7 @@ workflow is correct; it just needs the secret configured for future
 automated releases.
 
 One-time setup needed:
+
 1. Go to https://crates.io/settings/api-tokens
 2. Create token with `publish-new` + `publish-update` scopes
 3. Add as repo secret `CARGO_REGISTRY_TOKEN` at
@@ -118,8 +121,8 @@ ran from the working directory which matched `dd6d2bb`. However,
 crate **does** include those files. This is actually correct. The package
 list (18 files, 86.1KiB) matches what was published.
 
-*Correction: after verifying, the published state is consistent with `dd6d2bb`.
-This is NOT a partial — it's done correctly. Reclassifying from partial to done.*
+_Correction: after verifying, the published state is consistent with `dd6d2bb`.
+This is NOT a partial — it's done correctly. Reclassifying from partial to done._
 
 ---
 
@@ -138,6 +141,7 @@ All 9 post-release research spikes remain unstarted (expected). See the
 ### Test Gaps from Previous Self-Reviews
 
 Items from the previous session's "50 things" list remain unaddressed:
+
 - `dump_with_retention` with `max_files = 0` or `1`
 - `FlightRecorder::new(0)` zero capacity edge case
 - `dump_to_file` with read-only directory
@@ -162,6 +166,7 @@ The CHANGELOG `### Changed` section says:
 
 The **actual** published crate is **18 files, 86.1KiB**. This is wrong
 because:
+
 1. The previous session said "90.2KiB" (wrong — was 81.7 at that point)
 2. I "fixed" it to "81.7KiB, 16 files" in the collision refactor commit
 3. Then I added `deny.toml` + `release.toml` to the package (+2 files,
@@ -365,12 +370,12 @@ push your crates.io token into GitHub secrets.
 
 Crate published, CI green, automated publishing wired. All findings resolved.
 
-| Finding | Resolution | Commit |
-|---------|-----------|--------|
-| CHANGELOG wrong package size (150.9→81.7 KiB) | Corrected to 86.1 KiB / 17 files | `3f317fd` |
-| ROADMAP section 5 stale | Updated to reflect published state | `90cb0e0` |
-| CHANGELOG references removed `rustsec/audit-check` | Rewritten CI uses `cargo-audit` + `cargo-deny` | `3f317fd` |
-| `actions/checkout@v4` deprecation | Bumped to v7 | `3f317fd` |
-| `CARGO_REGISTRY_TOKEN` not configured | Configured — tag-push publishing automated | — |
-| `release.toml` not excluded | Excluded from published crate | `3f317fd` |
-| All 50 "next things" brainstorm | Items picked up by sessions 6–12. Remaining open items in `TODO_LIST.md`. | — |
+| Finding                                            | Resolution                                                                | Commit    |
+| -------------------------------------------------- | ------------------------------------------------------------------------- | --------- |
+| CHANGELOG wrong package size (150.9→81.7 KiB)      | Corrected to 86.1 KiB / 17 files                                          | `3f317fd` |
+| ROADMAP section 5 stale                            | Updated to reflect published state                                        | `90cb0e0` |
+| CHANGELOG references removed `rustsec/audit-check` | Rewritten CI uses `cargo-audit` + `cargo-deny`                            | `3f317fd` |
+| `actions/checkout@v4` deprecation                  | Bumped to v7                                                              | `3f317fd` |
+| `CARGO_REGISTRY_TOKEN` not configured              | Configured — tag-push publishing automated                                | —         |
+| `release.toml` not excluded                        | Excluded from published crate                                             | `3f317fd` |
+| All 50 "next things" brainstorm                    | Items picked up by sessions 6–12. Remaining open items in `TODO_LIST.md`. | —         |

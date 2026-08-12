@@ -81,6 +81,7 @@ flight recorder.
 - **`Layer` impl** bound changed: `S: Subscriber + for<'lookup> LookupSpan<'lookup>`.
 
 **Tests (5 new):**
+
 - `event_inside_single_span_captures_span_context` — single span, verify name + fields.
 - `event_inside_nested_spans_captures_full_hierarchy` — two-deep nesting, verify root-first ordering + per-span fields.
 - `event_outside_any_span_has_empty_span_context` — standalone event → empty `spans`.
@@ -135,6 +136,7 @@ describe span context capture.
 - **`dump_to_json_lines(&self) -> serde_json::Result<String>`**: NDJSON (JSON Lines) — one compact JSON object per line. Streamable, appendable, ingestible by log pipelines.
 
 **Tests (3 new):**
+
 - `dump_to_writer_produces_valid_json`
 - `dump_to_json_lines_produces_valid_ndjson` — validates each line is a standalone JSON object
 - `dump_to_json_lines_empty_buffer_produces_empty_string`
@@ -202,6 +204,7 @@ The implementation works and all tests pass, but:
 ### 3. Breaking change — not versioned
 
 I made three breaking API changes:
+
 - `CapturedEvent` has a new required field (`spans: Vec<SpanContext>`)
 - `push` changed from `pub` to `pub(crate)`
 - `Layer` impl bound changed to require `LookupSpan`
@@ -213,6 +216,7 @@ a semver-breaking change sitting on `master` unmarked.
 ### 4. Documentation updated — but not comprehensive
 
 I updated `README.md` and `AGENTS.md`. I did NOT update:
+
 - `CHANGELOG.md` — no entry for these changes
 - `FEATURES.md` — doesn't list span context, NDJSON, or `dump_to_writer`
 - `ROADMAP.md` — span context is still listed as a future item
@@ -278,9 +282,11 @@ in a different repository and the user didn't ask me to.
 ### 1. Marked an incomplete task as "completed"
 
 My todo item #3 was:
+
 > "Fix is_sensitive_field allocation (to_lowercase → case-insensitive) + '[REDACTED]' constant + level_to_string &'static str"
 
 I only did the first part (`is_sensitive_field`). I did NOT:
+
 - Add a `'[REDACTED]'` constant to avoid per-field allocation
 - Change `level_to_string` to return `&'static str`
 
@@ -296,6 +302,7 @@ separate todos.
 ### 2. Shipped a breaking change without bumping the version
 
 Three breaking changes sitting on `master` at version `0.1.1`:
+
 - New required field on a public struct
 - Public method made private
 - Trait bound tightened
@@ -447,6 +454,7 @@ undiscoverable.
 ### 1. Should I cut v0.2.0 now, or batch these changes with the remaining allocation fixes?
 
 I have 3 breaking changes on master at 0.1.1. I could either:
+
 - (a) Bump to 0.2.0 now and cut a release with what's here, then 0.2.1 for the allocation fixes.
 - (b) Finish `level_to_string` + `[REDACTED]` constant first, then cut one 0.2.0.
 
@@ -466,15 +474,15 @@ They're real false claims in a different repo. The feedback documented them but 
 
 All fixes shipped in v0.2.0. Breaking changes versioned. Open items tracked.
 
-| Finding | Resolution | Commit |
-|---------|-----------|--------|
-| Breaking changes not versioned | Version bumped to 0.2.0 (4 BREAKING changes documented in CHANGELOG) | `7434a27` |
-| `level_to_string` still allocates | Changed to `Cow<'static, str>` — zero heap alloc for level | `7434a27` |
-| `[REDACTED]` constant not extracted | Extracted to `const REDACTED` + `record_common(&str)` signature | `7434a27` |
-| Span context: no example | `examples/span_context.rs` added | `7434a27` |
-| Span context: no opt-out | `with_span_capture(bool)` added (session 10) | `b7637fb` |
-| Span context: per-event deep copy | `Arc<Vec>` sharing added (session 10) | `b7637fb` |
-| No CHANGELOG/FEATURES/ROADMAP/TODO_LIST updates | All updated in session 9 | `7434a27` |
-| Proptest doesn't cover capacity=0 | Range extended to `0..=500` (session 9) | `7434a27` |
-| Memory footprint test undercounts | Fixed with `deep_size_of_captured_event` (session 10) | `b7637fb` |
-| All 50 "next things" brainstorm | Items picked up by sessions 9–11. Remaining open items in `TODO_LIST.md`. | — |
+| Finding                                         | Resolution                                                                | Commit    |
+| ----------------------------------------------- | ------------------------------------------------------------------------- | --------- |
+| Breaking changes not versioned                  | Version bumped to 0.2.0 (4 BREAKING changes documented in CHANGELOG)      | `7434a27` |
+| `level_to_string` still allocates               | Changed to `Cow<'static, str>` — zero heap alloc for level                | `7434a27` |
+| `[REDACTED]` constant not extracted             | Extracted to `const REDACTED` + `record_common(&str)` signature           | `7434a27` |
+| Span context: no example                        | `examples/span_context.rs` added                                          | `7434a27` |
+| Span context: no opt-out                        | `with_span_capture(bool)` added (session 10)                              | `b7637fb` |
+| Span context: per-event deep copy               | `Arc<Vec>` sharing added (session 10)                                     | `b7637fb` |
+| No CHANGELOG/FEATURES/ROADMAP/TODO_LIST updates | All updated in session 9                                                  | `7434a27` |
+| Proptest doesn't cover capacity=0               | Range extended to `0..=500` (session 9)                                   | `7434a27` |
+| Memory footprint test undercounts               | Fixed with `deep_size_of_captured_event` (session 10)                     | `b7637fb` |
+| All 50 "next things" brainstorm                 | Items picked up by sessions 9–11. Remaining open items in `TODO_LIST.md`. | —         |

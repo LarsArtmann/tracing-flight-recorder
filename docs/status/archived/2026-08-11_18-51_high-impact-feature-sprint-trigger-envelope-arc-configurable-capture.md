@@ -13,6 +13,7 @@ Executed all 5 High Impact tasks from `TODO_LIST.md`. All gates green: **64 unit
 ## a) FULLY DONE
 
 ### Task 1: Configurable Span Context Capture — DONE
+
 - `FlightRecorderLayer::with_span_capture(recorder, bool)` constructor added (`src/layer.rs`).
 - `capture_span_context: bool` flag on `FlightRecorderLayer`. `new()` defaults to `true`.
 - `on_new_span`, `on_record`, `on_event` all early-return when disabled.
@@ -20,6 +21,7 @@ Executed all 5 High Impact tasks from `TODO_LIST.md`. All gates green: **64 unit
 - Non-breaking: existing `new()` callers get identical behavior.
 
 ### Task 2: `Arc<Vec<...>>` Span Field Sharing — DONE (was "blocked", now unblocked)
+
 - `SpanContext.fields` changed from `Vec<(String, String)>` to `Arc<Vec<(String, String)>>`.
 - `CapturedSpanFields` wrapper updated to hold `Arc<Vec<...>>`.
 - `on_new_span`: stores `Arc::new(fields)`.
@@ -31,6 +33,7 @@ Executed all 5 High Impact tasks from `TODO_LIST.md`. All gates green: **64 unit
 - BREAKING: documented in CHANGELOG. Serializes identically (plain array).
 
 ### Task 3: Trigger System + Once-Semantics — DONE
+
 - New file `src/trigger.rs` with:
   - `Trigger` trait (`should_dump(&CapturedEvent) -> bool`, `name() -> &str`).
   - `LevelTrigger`: fires at/above a severity. `level_rank_str` maps level names to u8 ranks (lower = more severe).
@@ -40,6 +43,7 @@ Executed all 5 High Impact tasks from `TODO_LIST.md`. All gates green: **64 unit
 - `examples/trigger.rs` — runnable demo verified end-to-end (OnceTrigger correctly produces 1 dump from 3 errors).
 
 ### Task 4: Dump Metadata Envelope — DONE
+
 - `FlightRecorderDump` struct in `capture.rs`: `schema_version`, `captured_at`, `crate_version`, `event_count`, `trigger_reason`, `events`.
 - `DUMP_SCHEMA_VERSION` const (currently 1).
 - 4 methods on `FlightRecorder`: `dump_envelope`, `dump_envelope_to_json`, `dump_envelope_to_file`, `dump_with_retention_envelope`.
@@ -48,12 +52,14 @@ Executed all 5 High Impact tasks from `TODO_LIST.md`. All gates green: **64 unit
 - 4 tests: envelope-to-file, null-reason-on-manual, round-trip-deserialization, retention-envelope format.
 
 ### Task 5: Memory Footprint Test Accuracy — DONE
+
 - Replaced naive `len()` summation with `deep_size_of_captured_event` helper.
 - Counts: struct stack size + every `String`/`Vec` **capacity** (not len) + Arc inner allocations for spans.
 - Real figure: **385 KB** (was reported as ~237 KB — a **62% undercount**, worse than the documented "30-50%").
 - Still within README's claimed ~200-500 KB range.
 
 ### Documentation Updates — DONE
+
 - `CHANGELOG.md`: all 5 features documented in 0.2.0 entry. BREAKING marker for `Arc<Vec>` field type.
 - `FEATURES.md`: new rows for configurable span capture, Arc-shared span fields, dump envelope, trigger system (4 rows). Updated OpenAPI row for `FlightRecorderDump`.
 - `ROADMAP.md`: removed shipped items from raw ideas. Updated non-goals for configurable span capture.
@@ -68,16 +74,19 @@ Executed all 5 High Impact tasks from `TODO_LIST.md`. All gates green: **64 unit
 ## b) PARTIALLY DONE
 
 ### Trigger error handling — PARTIAL
+
 - `fire_dump` returns `Result` but the call site in `on_event` discards it: `let _result = self.fire_dump(&reason);`.
 - The `OnceTrigger` consumes its token in `should_dump` BEFORE the dump runs. So if the dump fails (disk full, permissions denied), the data is **GONE** and the trigger won't retry. This is **documented in trigger.rs** but NOT logged or surfaced anywhere at runtime.
 - **For a diagnostic tool, a silently failed dump is the worst possible failure mode** — the operator thinks they captured the incident but they didn't.
 - Missing: an `on_dump` callback (documented in TODO_LIST Medium Impact) that would let the application observe dump failures.
 
 ### Envelope API completeness — PARTIAL
+
 - Has: `dump_envelope`, `dump_envelope_to_json`, `dump_envelope_to_file`, `dump_with_retention_envelope`.
 - Missing: `dump_envelope_to_writer` (streaming). The array dump API has `dump_to_writer` + `dump_to_writer_lines`, but the envelope API has no writer variant. Asymmetric.
 
 ### `with_dump_on` builder ordering documentation — PARTIAL
+
 - Discovered at integration time that `with_dump_on` MUST be called BEFORE `with_filter` because `with_filter` wraps the layer in `Filtered<L, F, S>` which doesn't expose `with_dump_on`.
 - Documented in: example code comment, README example comment.
 - NOT documented in: AGENTS.md "Critical Gotcha" section (which only covers per-layer filtering, not builder ordering).
@@ -87,6 +96,7 @@ Executed all 5 High Impact tasks from `TODO_LIST.md`. All gates green: **64 unit
 ## c) NOT STARTED (from the broader TODO_LIST)
 
 All Medium/Low/Cross-Project items remain untouched:
+
 - Make pretty-print opt-in
 - Observability hooks / `on_dump` callback
 - Compression option (`flate2`)
@@ -107,18 +117,21 @@ All Medium/Low/Cross-Project items remain untouched:
 ## d) TOTALLY FUCKED UP
 
 ### 1. WRONG DOCTEST COUNT IN DOCS — EMBARRASSING
+
 - I wrote **"64 unit + 6 doctests"** in `CONTRIBUTING.md:22` and `AGENTS.md:11`.
 - Actual count is **64 unit + 8 doctests** (confirmed via `cargo test --all-features --doc`).
 - The 2 extra doctests come from the 2 new README sections I added ("Automatic Snapshots on Failure" + "Dump Metadata Envelope"), each with a `no_run` code block compiled as a doctest.
 - **I literally added the doctests myself and then miscounted them in the same session.**
 
 ### 2. `fire_dump` SILENT ERROR SWALLOWING — DESIGN FLAW
+
 - `on_event` does `let _result = self.fire_dump(&reason);` — if the dump fails, there is zero feedback.
 - No `eprintln!`, no `tracing::error!`, no callback. The error vanishes.
 - For a tool whose entire purpose is "capture diagnostic data before it's lost," silently dropping a dump is a critical reliability gap.
 - The `OnceTrigger` makes this worse: token consumed, dump failed, no retry.
 
 ### 3. `OnceTrigger` RACE CONDITION — CONCURRENCY HOLE
+
 - `OnceTrigger::should_dump` does load-check-store non-atomically: `load(Acquire)` then `store(Release)`.
 - Between the load and the store, another thread can also see `false`, both fire, and both store `true`.
 - This means under concurrent error bursts, **multiple dumps can fire** despite OnceTrigger.
@@ -137,7 +150,7 @@ All Medium/Low/Cross-Project items remain untouched:
 
 3. **No Debug impl for `FlightRecorderLayer`.** The layer now holds `Option<DumpConfig>` with `Box<dyn Trigger>` — none of which implements Debug. An operator can't `dbg!()` the layer to inspect its trigger state. The existing `Debug for FlightRecorder` only shows capacity + len.
 
-4. **Didn't verify `cargo doc` output visually.** I confirmed it *builds* but never checked whether `FlightRecorderDump`, `Trigger`, `LevelTrigger`, `OnceTrigger` render correctly with their doc comments, cross-references, and feature-gate badges.
+4. **Didn't verify `cargo doc` output visually.** I confirmed it _builds_ but never checked whether `FlightRecorderDump`, `Trigger`, `LevelTrigger`, `OnceTrigger` render correctly with their doc comments, cross-references, and feature-gate badges.
 
 5. **Test for `OnceTrigger` race condition missing.** I wrote a concurrency hole and tested it only with sequential calls. The multi-thread stress test for the ring buffer exists (`multi_thread_stress_push_and_snapshot`) but no equivalent for the trigger system.
 
@@ -232,36 +245,36 @@ All Medium/Low/Cross-Project items remain untouched:
 
 ## Gate Status
 
-| Gate | Result |
-|------|--------|
-| `cargo build --all-features` | PASS |
-| `cargo test --all-features` | 64 unit + 8 doctests PASS |
-| `cargo clippy --all-features --all-targets -- -D warnings` | PASS |
-| `cargo fmt --check` | PASS |
-| `cargo doc --all-features --no-deps` | PASS (not visually verified) |
-| `cargo build --all-features --examples` | PASS (5 examples) |
-| `cargo build --no-default-features` | PASS |
-| `cargo deny check` | NOT RUN (tool not installed) |
-| `cargo audit` | NOT RUN (tool not installed) |
+| Gate                                                       | Result                       |
+| ---------------------------------------------------------- | ---------------------------- |
+| `cargo build --all-features`                               | PASS                         |
+| `cargo test --all-features`                                | 64 unit + 8 doctests PASS    |
+| `cargo clippy --all-features --all-targets -- -D warnings` | PASS                         |
+| `cargo fmt --check`                                        | PASS                         |
+| `cargo doc --all-features --no-deps`                       | PASS (not visually verified) |
+| `cargo build --all-features --examples`                    | PASS (5 examples)            |
+| `cargo build --no-default-features`                        | PASS                         |
+| `cargo deny check`                                         | NOT RUN (tool not installed) |
+| `cargo audit`                                              | NOT RUN (tool not installed) |
 
 ## Files Changed This Session
 
-| File | Change |
-|------|--------|
-| `src/trigger.rs` | NEW — Trigger trait, LevelTrigger, OnceTrigger (183 lines) |
-| `src/capture.rs` | `FlightRecorderDump` struct, `DUMP_SCHEMA_VERSION`, `Arc` import, `SpanContext.fields` → `Arc<Vec>`, OpenAPI test |
-| `src/layer.rs` | `capture_span_context` flag, `with_span_capture`, `DumpConfig`, `with_dump_on`, `fire_dump`, envelope dump methods, `write_json_file`/`prepare_retention_path` helpers, `Arc::make_mut` in `on_record`, `Arc::clone` in `capture_span_context` |
-| `src/layer_tests.rs` | `deep_size_of_captured_event` helper, 12 new tests (span capture toggle, envelope, trigger integration, Arc sharing) |
-| `src/lib.rs` | `mod trigger`, re-exports for `FlightRecorderDump`, `DUMP_SCHEMA_VERSION`, `Trigger`, `LevelTrigger`, `OnceTrigger` |
-| `Cargo.toml` | `serde/rc`, `utoipa/rc_schema` features |
-| `examples/trigger.rs` | NEW — trigger system demo |
-| `CHANGELOG.md` | 0.2.0 entry expanded with all 5 features + breaking changes |
-| `FEATURES.md` | New rows for trigger, envelope, configurable capture, Arc sharing |
-| `ROADMAP.md` | Shipped items removed from raw ideas, non-goals updated |
-| `TODO_LIST.md` | High Impact collapsed to "shipped" |
-| `README.md` | "Automatic Snapshots" + "Dump Metadata Envelope" sections + features list |
-| `CONTRIBUTING.md` | Data flow diagram, test count (**WRONG: says 6 doctests, actual 8**), dump method list |
-| `AGENTS.md` | Code org table (5 files), public API, conventions, test count (**WRONG: says 6 doctests, actual 8**) |
+| File                  | Change                                                                                                                                                                                                                                         |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/trigger.rs`      | NEW — Trigger trait, LevelTrigger, OnceTrigger (183 lines)                                                                                                                                                                                     |
+| `src/capture.rs`      | `FlightRecorderDump` struct, `DUMP_SCHEMA_VERSION`, `Arc` import, `SpanContext.fields` → `Arc<Vec>`, OpenAPI test                                                                                                                              |
+| `src/layer.rs`        | `capture_span_context` flag, `with_span_capture`, `DumpConfig`, `with_dump_on`, `fire_dump`, envelope dump methods, `write_json_file`/`prepare_retention_path` helpers, `Arc::make_mut` in `on_record`, `Arc::clone` in `capture_span_context` |
+| `src/layer_tests.rs`  | `deep_size_of_captured_event` helper, 12 new tests (span capture toggle, envelope, trigger integration, Arc sharing)                                                                                                                           |
+| `src/lib.rs`          | `mod trigger`, re-exports for `FlightRecorderDump`, `DUMP_SCHEMA_VERSION`, `Trigger`, `LevelTrigger`, `OnceTrigger`                                                                                                                            |
+| `Cargo.toml`          | `serde/rc`, `utoipa/rc_schema` features                                                                                                                                                                                                        |
+| `examples/trigger.rs` | NEW — trigger system demo                                                                                                                                                                                                                      |
+| `CHANGELOG.md`        | 0.2.0 entry expanded with all 5 features + breaking changes                                                                                                                                                                                    |
+| `FEATURES.md`         | New rows for trigger, envelope, configurable capture, Arc sharing                                                                                                                                                                              |
+| `ROADMAP.md`          | Shipped items removed from raw ideas, non-goals updated                                                                                                                                                                                        |
+| `TODO_LIST.md`        | High Impact collapsed to "shipped"                                                                                                                                                                                                             |
+| `README.md`           | "Automatic Snapshots" + "Dump Metadata Envelope" sections + features list                                                                                                                                                                      |
+| `CONTRIBUTING.md`     | Data flow diagram, test count (**WRONG: says 6 doctests, actual 8**), dump method list                                                                                                                                                         |
+| `AGENTS.md`           | Code org table (5 files), public API, conventions, test count (**WRONG: says 6 doctests, actual 8**)                                                                                                                                           |
 
 ---
 
@@ -279,18 +292,18 @@ All Medium/Low/Cross-Project items remain untouched:
 
 All 5 High Impact tasks shipped. Some P0 correctness items remain open in `TODO_LIST.md`.
 
-| Finding | Resolution | Commit / Status |
-|---------|-----------|-----------------|
-| Configurable span capture | ~~TODO~~ done — `with_span_capture(bool)` | `b7637fb` |
-| `Arc<Vec>` span field sharing | ~~TODO~~ done — serde `rc` + utoipa `rc_schema` | `b7637fb` |
-| Trigger system + once-semantics | ~~TODO~~ done — `Trigger`/`LevelTrigger`/`OnceTrigger` | `b7637fb` |
-| Dump metadata envelope | ~~TODO~~ done — `FlightRecorderDump` | `b7637fb` |
-| Memory footprint test accuracy | ~~TODO~~ done — `deep_size_of_captured_event` | `b7637fb` |
-| Silent dump error swallowing (d.2) | **Still open** — `let _result = self.fire_dump(…)` at `src/layer.rs:778`. Tracked in `TODO_LIST.md` High Impact | — |
-| `OnceTrigger` race condition (d.3) | **Still open** — non-atomic load-check-store. Tracked in `TODO_LIST.md` High Impact | — |
-| Doctest count wrong (6 vs 8) | ~~Fixed~~ corrected in session 11 (now 10 doctests) | `34ab131` |
-| `on_dump` callback (missing) | ~~Done~~ shipped in session 11 (`DumpEvent`/`DumpSource`) | `34ab131` |
-| Compact-default JSON | ~~Done~~ shipped in session 11 (BREAKING → 0.3.0) | `34ab131` |
-| No `Debug` for `FlightRecorderLayer` | **Still open** — tracked in `TODO_LIST.md` Medium Impact | — |
-| `dump_envelope_to_writer` missing | **Still open** — tracked in `TODO_LIST.md` Medium Impact | — |
-| All 50 "next things" brainstorm | Open items tracked in `TODO_LIST.md`. Long-term items in `ROADMAP.md`. | — |
+| Finding                              | Resolution                                                                                                      | Commit / Status |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------- | --------------- |
+| Configurable span capture            | ~~TODO~~ done — `with_span_capture(bool)`                                                                       | `b7637fb`       |
+| `Arc<Vec>` span field sharing        | ~~TODO~~ done — serde `rc` + utoipa `rc_schema`                                                                 | `b7637fb`       |
+| Trigger system + once-semantics      | ~~TODO~~ done — `Trigger`/`LevelTrigger`/`OnceTrigger`                                                          | `b7637fb`       |
+| Dump metadata envelope               | ~~TODO~~ done — `FlightRecorderDump`                                                                            | `b7637fb`       |
+| Memory footprint test accuracy       | ~~TODO~~ done — `deep_size_of_captured_event`                                                                   | `b7637fb`       |
+| Silent dump error swallowing (d.2)   | **Still open** — `let _result = self.fire_dump(…)` at `src/layer.rs:778`. Tracked in `TODO_LIST.md` High Impact | —               |
+| `OnceTrigger` race condition (d.3)   | **Still open** — non-atomic load-check-store. Tracked in `TODO_LIST.md` High Impact                             | —               |
+| Doctest count wrong (6 vs 8)         | ~~Fixed~~ corrected in session 11 (now 10 doctests)                                                             | `34ab131`       |
+| `on_dump` callback (missing)         | ~~Done~~ shipped in session 11 (`DumpEvent`/`DumpSource`)                                                       | `34ab131`       |
+| Compact-default JSON                 | ~~Done~~ shipped in session 11 (BREAKING → 0.3.0)                                                               | `34ab131`       |
+| No `Debug` for `FlightRecorderLayer` | **Still open** — tracked in `TODO_LIST.md` Medium Impact                                                        | —               |
+| `dump_envelope_to_writer` missing    | **Still open** — tracked in `TODO_LIST.md` Medium Impact                                                        | —               |
+| All 50 "next things" brainstorm      | Open items tracked in `TODO_LIST.md`. Long-term items in `ROADMAP.md`.                                          | —               |

@@ -140,6 +140,7 @@ CHANGELOG was updated with M1-M7 entries (the previous session's work) but
 **has zero entries for this session's work**:
 
 Missing from `### Added`:
+
 - Poison-recovery test
 - Unicode field name redaction test
 - Nested-directory dump test
@@ -154,6 +155,7 @@ Missing from `### Added`:
 - Collision counter upper bound (9999 limit)
 
 Missing from `### Changed`:
+
 - Examples now write to `temp_dir` instead of repo root
 - `exclude` list tightened to remove internal docs from crate package
 - Package size reduced from 150.9KiB to 90.2KiB
@@ -174,13 +176,13 @@ This was marked done prematurely. It should be `🔴 NOT DONE`.
 
 5 items are listed as `🔴 TODO` that are **all completed in this session**:
 
-| Task (still 🔴 TODO in file) | Actual status | Test name |
-|------------------------------|---------------|-----------|
-| Concurrency stress test | ✅ DONE | `multi_thread_stress_push_and_snapshot` |
-| Proptest eviction invariant | ✅ DONE | `eviction_invariant_len_never_exceeds_capacity` |
-| Poison-recovery test | ✅ DONE | `recorder_recovers_from_poisoned_mutex` |
-| Unicode field name redaction test | ✅ DONE | `unicode_field_names_with_ascii_sensitive_substring_are_redacted` |
-| Non-JSON files survive retention pruning | ✅ DONE | `retention_pruning_leaves_non_json_files_alone` |
+| Task (still 🔴 TODO in file)             | Actual status | Test name                                                         |
+| ---------------------------------------- | ------------- | ----------------------------------------------------------------- |
+| Concurrency stress test                  | ✅ DONE       | `multi_thread_stress_push_and_snapshot`                           |
+| Proptest eviction invariant              | ✅ DONE       | `eviction_invariant_len_never_exceeds_capacity`                   |
+| Poison-recovery test                     | ✅ DONE       | `recorder_recovers_from_poisoned_mutex`                           |
+| Unicode field name redaction test        | ✅ DONE       | `unicode_field_names_with_ascii_sensitive_substring_are_redacted` |
+| Non-JSON files survive retention pruning | ✅ DONE       | `retention_pruning_leaves_non_json_files_alone`                   |
 
 This is the **THIRD consecutive session** with this exact failure pattern.
 
@@ -260,6 +262,7 @@ logic into a testable function. But either way, the guard is untested.)
 
 I added `rustsec/audit-check@v2.0.0` to the CI pipeline without verifying
 that:
+
 - The action exists at that version
 - The `v2.0.0` tag is the latest/correct version
 - The `token` input is the correct parameter name
@@ -407,6 +410,7 @@ explicit, not accidental.
 The crate passes all gates (`cargo publish --dry-run` succeeds, 24 tests,
 clippy clean). But there's no git remote configured, so the tag would be
 local-only. Should I:
+
 - (a) Create the tag now (local only, push later when remote is configured)
 - (b) Wait until more P3 work is done
 - (c) Wait until a remote is configured so the tag can be pushed immediately
@@ -414,6 +418,7 @@ local-only. Should I:
 ### 2. Should the `rustsec/audit-check` CI action be verified/replaced before committing?
 
 I added `rustsec/audit-check@v2.0.0` without verifying it exists. I can:
+
 - (a) Verify it now via web search and fix if wrong
 - (b) Replace it with a simpler `cargo install cargo-audit && cargo audit` step
 - (c) Remove it entirely and add it later
@@ -421,25 +426,26 @@ I added `rustsec/audit-check@v2.0.0` without verifying it exists. I can:
 ### 3. Should the collision counter limit (9999) be made configurable?
 
 The current limit is a hardcoded `9999`. Options:
+
 - (a) Keep it hardcoded (99.99% of users will never hit it)
 - (b) Make it a parameter on `dump_with_retention`
 - (c) Extract the logic into a separate testable function with an internal
-      constant that tests can override
+  constant that tests can override
 
 ---
 
 ## Session Metrics
 
-| Metric | Start | End |
-|--------|-------|-----|
-| Unit tests | 17 | 24 (+7) |
-| Doctests | 3 | 3 |
-| CHANGELOG entries | 14 | 20 (+6, but missing ~12 more) |
-| Package size | 150.9 KiB | 90.2 KiB |
-| `.git` size | 280 KB | 280 KB (unchanged) |
-| Clippy lints | 0 | 0 |
-| TODO_LIST split-brains | 1 (previous) | 5 (this session) |
-| Process failures | 2 (previous sessions) | 3 (cumulative) |
+| Metric                 | Start                 | End                           |
+| ---------------------- | --------------------- | ----------------------------- |
+| Unit tests             | 17                    | 24 (+7)                       |
+| Doctests               | 3                     | 3                             |
+| CHANGELOG entries      | 14                    | 20 (+6, but missing ~12 more) |
+| Package size           | 150.9 KiB             | 90.2 KiB                      |
+| `.git` size            | 280 KB                | 280 KB (unchanged)            |
+| Clippy lints           | 0                     | 0                             |
+| TODO_LIST split-brains | 1 (previous)          | 5 (this session)              |
+| Process failures       | 2 (previous sessions) | 3 (cumulative)                |
 
 ---
 
@@ -447,11 +453,11 @@ The current limit is a hardcoded `9999`. Options:
 
 All P2 work (M8–M13) shipped. v0.1.0 tagged and published.
 
-| Finding | Resolution | Commit |
-|---------|-----------|--------|
-| M11 falsely marked complete (no tag, no CHANGELOG section) | v0.1.0 tagged, CHANGELOG `[0.1.0]` section added | `36af9c8` |
-| CHANGELOG missing M8–M13 entries | Added — see `[0.1.0]` in `CHANGELOG.md` | `36af9c8` |
-| TODO_LIST split-brains (5 phantom TODOs) | Fixed across sessions 4–6 | — |
-| Collision counter 9999 limit untested | Tested via `resolve_collision_path` unit tests | `36af9c8` |
-| No git remote / not published | Published to crates.io | `dd6d2bb` |
-| All 50 "next things" brainstorm | Items picked up by sessions 4–12. Remaining open items in `TODO_LIST.md`. | — |
+| Finding                                                    | Resolution                                                                | Commit    |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------- | --------- |
+| M11 falsely marked complete (no tag, no CHANGELOG section) | v0.1.0 tagged, CHANGELOG `[0.1.0]` section added                          | `36af9c8` |
+| CHANGELOG missing M8–M13 entries                           | Added — see `[0.1.0]` in `CHANGELOG.md`                                   | `36af9c8` |
+| TODO_LIST split-brains (5 phantom TODOs)                   | Fixed across sessions 4–6                                                 | —         |
+| Collision counter 9999 limit untested                      | Tested via `resolve_collision_path` unit tests                            | `36af9c8` |
+| No git remote / not published                              | Published to crates.io                                                    | `dd6d2bb` |
+| All 50 "next things" brainstorm                            | Items picked up by sessions 4–12. Remaining open items in `TODO_LIST.md`. | —         |

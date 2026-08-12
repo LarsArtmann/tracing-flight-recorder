@@ -72,6 +72,7 @@ examples→temp_dir, exclude tightening.
 ### rustsec/audit-check@v2.0.0 — Verified
 
 Web-fetched the GitHub repo. Confirmed:
+
 - `v2.0.0` is the **latest** tag (released Sep 2024)
 - The action is **actively maintained** (not deprecated)
 - `token` is a **required** input — the CI config is correct
@@ -90,6 +91,7 @@ session's exclude changes, 23 files / 150.9KiB at session start).
 
 After the collision refactor shifted symbols by ~8 lines in `layer.rs`, all
 affected line references were updated:
+
 - `DOMAIN_LANGUAGE.md`: `FlightRecorderLayer` 226→234, `impl Layer` 244→252,
   per-layer filter doc 221→229
 - `FEATURES.md`: `on_event` 248→256, retention evidence updated with 3 new
@@ -122,13 +124,15 @@ Section 5 "Crates.io publication readiness" says:
 > The crate is unreleased at `0.1.0`. Moving toward a first published release.
 
 Raw ideas listed are ALL done:
+
 - "Verify Cargo.toml metadata renders on crates.io" → publish dry-run passes
 - "Add a minimal examples/ directory" → 3 examples exist
 - "Decide on Cargo.lock policy" → Cargo.lock committed
 
 This section should be updated to reflect that v0.1.0 is tagged and the
 remaining step is actually publishing to crates.io (requires `cargo publish`
-+ a crates.io account + API token).
+
+- a crates.io account + API token).
 
 ### README Badges — Not Added
 
@@ -185,7 +189,7 @@ The CHANGELOG `### Changed` section says:
 > (150.9KiB → 90.2KiB)
 
 But the **actual** v0.1.0 package is **81.7KiB** (16 files). This is because
-I wrote that CHANGELOG entry reflecting the *previous session's* exclude
+I wrote that CHANGELOG entry reflecting the _previous session's_ exclude
 changes, then in THIS session further tightened the excludes (adding
 `CONTRIBUTING.md`, `TODO_LIST.md`, `FEATURES.md`, `ROADMAP.md`). The
 CHANGELOG now misrepresents the final tagged state.
@@ -205,6 +209,7 @@ missed ROADMAP.
 ### 3. CHANGELOG Comparison Links Point to Non-Existent URLs
 
 The `[Unreleased]` and `[0.1.0]` links point to:
+
 - `https://github.com/LarsArtmann/tracing-flight-recorder/compare/v0.1.0...HEAD`
 - `https://github.com/LarsArtmann/tracing-flight-recorder/releases/tag/v0.1.0`
 
@@ -380,11 +385,11 @@ metadata is wrong.
 
 v0.1.0 tagged, published to crates.io. All findings resolved.
 
-| Finding | Resolution | Commit |
-|---------|-----------|--------|
-| CHANGELOG wrong package size (150.9→90.2 KiB) | Corrected to 86.1 KiB / 17 files | `3f317fd` |
-| ROADMAP section 5 stale | Updated across sessions 5–6 | `dd6d2bb`, `90cb0e0` |
-| No git remote | GitHub repo created, remote configured | `dd6d2bb` |
-| Not published to crates.io | Published (v0.1.0 + v0.1.1) | `dd6d2bb`, `3f317fd` |
-| README badges missing | Live on crates.io/docs.rs | `dd6d2bb` |
-| All 50 "next things" brainstorm | Items picked up by sessions 5–12. Remaining open items in `TODO_LIST.md`. | — |
+| Finding                                       | Resolution                                                                | Commit               |
+| --------------------------------------------- | ------------------------------------------------------------------------- | -------------------- |
+| CHANGELOG wrong package size (150.9→90.2 KiB) | Corrected to 86.1 KiB / 17 files                                          | `3f317fd`            |
+| ROADMAP section 5 stale                       | Updated across sessions 5–6                                               | `dd6d2bb`, `90cb0e0` |
+| No git remote                                 | GitHub repo created, remote configured                                    | `dd6d2bb`            |
+| Not published to crates.io                    | Published (v0.1.0 + v0.1.1)                                               | `dd6d2bb`, `3f317fd` |
+| README badges missing                         | Live on crates.io/docs.rs                                                 | `dd6d2bb`            |
+| All 50 "next things" brainstorm               | Items picked up by sessions 5–12. Remaining open items in `TODO_LIST.md`. | —                    |

@@ -6,8 +6,9 @@
 ## Themes
 
 ### 1. Time-windowed capture
+
 The recorder currently evicts by **event count** (`capacity = N`). The Go
-inspiration and the README describe capturing "the last N *seconds*" of context,
+inspiration and the README describe capturing "the last N _seconds_" of context,
 but there is no time-based dimension. Explore capacity that is expressed as a
 duration (e.g. "keep events from the last 60s") instead of, or in addition to, a
 count.
@@ -82,7 +83,7 @@ Things we are deliberately NOT pursuing and why:
   logging backends.
 - **Distributed / OpenTelemetry-native tracing backend:** This is a local,
   in-process, single-node diagnostic tool. Cross-process correlation is out of
-  scope (though OTLP *export* of a snapshot may appear under theme 3).
+  scope (though OTLP _export_ of a snapshot may appear under theme 3).
 - **Persistent log storage / log rotation daemon:** The buffer is intentionally
   ephemeral and bounded. Long-term retention belongs in a real log collector.
 - **GUI viewer:** Snapshots are JSON files for external tooling; a built-in

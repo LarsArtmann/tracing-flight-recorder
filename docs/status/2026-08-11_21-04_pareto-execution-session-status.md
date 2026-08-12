@@ -8,18 +8,21 @@
 ## a) FULLY DONE (verified, tested, documented)
 
 ### M2 — Verified 4 living docs from disk
+
 - **README.md** — Read in full (244 lines). Feature list accurate, install commands correct (`"0.2"` version ref), Quick Start compiles as doctest. Updated feature list to mention envelope writer variants and `success`/`error` on `on_dump`.
 - **AGENTS.md** — Read in full (98→107 lines). Fixed `docs.rs` features claim (was "openapi" only, Cargo.toml has both `openapi` AND `gzip`). Added `with_dump_on` builder ordering caveat (M12). Updated trigger system convention (Debug bound, compare_exchange, error surfacing). Updated observability hooks test list.
 - **docs/DOMAIN_LANGUAGE.md** — Complete rewrite. Replaced ALL fragile `file:line` citations with stable `Type::method` symbol names (the old citations were ~100% stale after 300+ lines of code growth). Added 15+ missing terms: Trigger, LevelTrigger, OnceTrigger, Fire Dump, Dump Envelope, Schema Version, Dump Event, Dump Source, On-Dump Callback, NDJSON, Gzip Dump, Span Context, Span Field Capture, OpenAPI Schema, Gzip Compression.
 - **CONTRIBUTING.md** — Read in full (92 lines). Dump method list was missing 10 variants (pretty, gz, envelope-json, writer). Fixed.
 
 ### M3 — Fixed OnceTrigger race condition
+
 - Replaced non-atomic `load(Acquire)` → `store(Release)` with `compare_exchange(false, true, AcqRel, Acquire)` in `src/trigger.rs:139-152`.
 - Updated doc comment to reflect true atomic test-and-set (removed "at worst two dumps" acknowledgment).
 - Added concurrent stress test: 16 threads emit ERROR simultaneously, assert exactly 1 fire via `AtomicUsize` counter. `once_trigger_concurrent_exactly_one_fire`.
 - All existing OnceTrigger tests still pass.
 
 ### M4 — Surfaced fire_dump errors
+
 - Added `success: bool` and `error: Option<String>` fields to `DumpEvent` (`src/capture.rs:116-145`).
 - Rewrote `fire_dump` from `fn(&self, &str) -> io::Result<()>` to `fn(&self, &str)` — handles errors internally, fires `on_dump` callback with `success: false` + error message on failure (`src/layer.rs:719-750`).
 - Updated `on_event` call site: removed `let _result =` silent discard (`src/layer.rs:843`).
@@ -28,6 +31,7 @@
 - **BREAKING CHANGE documented** in CHANGELOG: `DumpEvent` has 2 new required fields.
 
 ### M5 — Debug for FlightRecorderLayer
+
 - Added `std::fmt::Debug` as supertrait on `Trigger` trait (`src/trigger.rs:35`).
 - Derived `Debug` on `LevelTrigger`, `OnceTrigger<T>`, `DumpConfig`.
 - Manual `Debug` impl on `FlightRecorderLayer` (delegates to recorder, capture flag, dump config).
@@ -35,28 +39,34 @@
 - **BREAKING CHANGE documented** in CHANGELOG: `Trigger` trait now requires `Debug`.
 
 ### M8 — Closed pretty-variant test gaps
+
 - `dump_to_writer_pretty_produces_valid_indented_json` — writes to Vec, asserts newlines, parses JSON.
 - `dump_to_file_pretty_writes_valid_indented_json` — writes to temp file, reads back, asserts indentation.
 - `dump_envelope_to_file_pretty_writes_valid_indented_envelope` — envelope variant, checks trigger_reason round-trips.
 
 ### M9 — Closed on_dump coverage gaps
+
 - `on_dump_fires_for_retention_dump` — calls `dump_with_retention`, asserts callback fires with `DumpSource::Manual`.
 - `on_dump_fires_for_envelope_file_dump` — calls `dump_envelope_to_file`, asserts callback fires with reason.
 - `on_dump_not_fired_for_in_memory_dumps` — negative test: `dump_to_json`, `dump_to_json_pretty`, `dump_envelope_to_json`, `dump_to_writer`, `dump_to_json_lines` — none fire callback.
 
 ### M10 — Added compression + observability examples
+
 - `examples/compression.rs` — subscriber setup, DEBUG events, `dump_to_file_gz` + `dump_envelope_to_file_gz`, size comparison. Runs successfully (11.7× compression observed).
 - `examples/observability.rs` — subscriber setup, `with_on_dump` callback printing DumpEvent fields, 3 file-writing dumps + in-memory negative case. Runs successfully (callback fires 3× as expected).
 
 ### M11 — Added dump_envelope_to_writer
+
 - `dump_envelope_to_writer(&self, writer: &mut dyn Write, reason: Option<&str>)` — compact JSON streaming.
 - `dump_envelope_to_writer_pretty` — indented variant.
 - 2 tests: `dump_envelope_to_writer_produces_valid_envelope`, `dump_envelope_to_writer_pretty_indents`.
 
 ### M12 — Documented with_dump_on builder ordering
+
 - Added "Critical Gotcha: `with_dump_on` Builder Ordering" section to AGENTS.md with correct ordering example.
 
 ### M18 — Cross-file doc consistency audit
+
 - Updated CHANGELOG `[Unreleased]` with all new Added/Changed/Fixed entries.
 - Updated FEATURES.md: Trigger trait (Debug bound), OnceTrigger (compare_exchange + concurrent test), DumpEvent (success/error fields), new methods, expanded test names.
 - Updated TODO_LIST.md: removed 8 completed items (OnceTrigger race, fire_dump errors, Debug impl, pretty tests, on_dump tests, examples, envelope writer, with_dump_on docs). Split v0.2.0/v0.3.0 into separate release tasks.
@@ -64,6 +74,7 @@
 - Updated AGENTS.md conventions (trigger system, observability hooks, docs.rs features).
 
 ### Quality gate
+
 - **88 unit tests** (was 76, +12 new) + **10 doctests** — all pass.
 - `cargo clippy --all-features --all-targets -- -D warnings` — clean.
 - `cargo fmt --check` — clean.
@@ -75,10 +86,12 @@
 ## b) PARTIALLY DONE
 
 ### M1-partial — CHANGELOG link references
+
 - The `[Unreleased]` content was updated with all new changes.
 - **The bottom link references are STILL broken**: `[Unreleased]: .../compare/v0.2.0...HEAD` is a dead link because `v0.2.0` tag doesn't exist. This can only be resolved by tagging v0.2.0 (publish gate).
 
 ### fire_dump error handling (M4 continuation)
+
 - Trigger dump failures fire the `on_dump` callback with `success: false` + error message — **but only when a callback is registered**.
 - If no `on_dump` callback is set, `report()` is a no-op (`if let Some(hook) = ...`), and the error is **STILL silently swallowed**. The fix only works for users who registered a callback.
 - A `std::eprintln!` fallback was considered but rejected to avoid stderr noise from a library. A `tracing::error!` was considered but is **dangerous**: emitting a tracing event inside a tracing `Layer::on_event` can cause re-entrant calls into the same layer (the error event feeds back through `on_event`, potentially triggering another dump → another error → infinite recursion).
@@ -87,17 +100,17 @@
 
 ## c) NOT STARTED
 
-| Task | Why not started |
-|------|----------------|
-| **M1 — Tag v0.2.0** | Irreversible (`git push` + crates.io publish). Requires user approval. |
-| **M6 — Publish v0.2.0** | Depends on M1. |
-| **M7 — Tag + publish v0.3.0** | Depends on M6. Requires Cargo.toml version bump. |
-| **M13 — Trigger-path gzip** | P3 tier (features). Not reached. |
-| **M14 — Configurable redaction** | P3 tier. Not reached. |
-| **M15 — FlightRecorderBuilder** | P3 tier. Not reached. |
-| **M16 — parking_lot + Arc\<CapturedEvent\>** | P3 tier (deferred). |
-| **M17 — Async capture** | P3 tier (deferred). |
-| **M19-M23 — Roadmap spikes** | P3 tier. Not reached. |
+| Task                                         | Why not started                                                        |
+| -------------------------------------------- | ---------------------------------------------------------------------- |
+| **M1 — Tag v0.2.0**                          | Irreversible (`git push` + crates.io publish). Requires user approval. |
+| **M6 — Publish v0.2.0**                      | Depends on M1.                                                         |
+| **M7 — Tag + publish v0.3.0**                | Depends on M6. Requires Cargo.toml version bump.                       |
+| **M13 — Trigger-path gzip**                  | P3 tier (features). Not reached.                                       |
+| **M14 — Configurable redaction**             | P3 tier. Not reached.                                                  |
+| **M15 — FlightRecorderBuilder**              | P3 tier. Not reached.                                                  |
+| **M16 — parking_lot + Arc\<CapturedEvent\>** | P3 tier (deferred).                                                    |
+| **M17 — Async capture**                      | P3 tier (deferred).                                                    |
+| **M19-M23 — Roadmap spikes**                 | P3 tier. Not reached.                                                  |
 
 ---
 
@@ -109,14 +122,14 @@ The prior session's audit fixed 6 stale `file:line` citations in FEATURES.md. My
 
 **Current drift:**
 
-| FEATURES.md citation | Claims | Actual | Status |
-|----------------------|--------|--------|--------|
-| `src/layer.rs:75` (push) | 75 | 75 | ✓ still correct (code added after) |
-| `src/layer.rs:91` (snapshot) | 91 | 91 | ✓ still correct |
-| `src/layer.rs:109` (dump_to_json) | 109 | 109 | ✓ still correct |
-| `src/layer.rs:762` (on_event) | 762 | **825** | **✗ shifted +63** |
-| `src/capture.rs:160` (FieldVisitor) | 160 | **174** | **✗ shifted +14** |
-| `src/capture.rs:201` (is_sensitive_field) | 201 | **215** | **✗ shifted +14** |
+| FEATURES.md citation                      | Claims | Actual  | Status                             |
+| ----------------------------------------- | ------ | ------- | ---------------------------------- |
+| `src/layer.rs:75` (push)                  | 75     | 75      | ✓ still correct (code added after) |
+| `src/layer.rs:91` (snapshot)              | 91     | 91      | ✓ still correct                    |
+| `src/layer.rs:109` (dump_to_json)         | 109    | 109     | ✓ still correct                    |
+| `src/layer.rs:762` (on_event)             | 762    | **825** | **✗ shifted +63**                  |
+| `src/capture.rs:160` (FieldVisitor)       | 160    | **174** | **✗ shifted +14**                  |
+| `src/capture.rs:201` (is_sensitive_field) | 201    | **215** | **✗ shifted +14**                  |
 
 **Root cause:** I edited `capture.rs` and `layer.rs` (adding code above these lines) and never re-verified the FEATURES.md citations. The exact failure mode the audit was designed to prevent.
 

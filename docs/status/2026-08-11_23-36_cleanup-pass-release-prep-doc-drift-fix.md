@@ -13,11 +13,11 @@ The prior session executed the Pareto plan (P0→P2 + M18) but stopped at the pu
 
 ### The 3 questions and my decisions
 
-| # | Question | Decision | Rationale |
-|---|----------|----------|-----------|
-| Q1 | Separate v0.2.0/v0.3.0 releases or batch into one 0.3.0 jump? | **Batch into v0.3.0** | v0.2.0 was never tagged, no users have it, current HEAD has both batches. Publishing v0.2.0 just to immediately publish v0.3.0 is pointless churn. Semver jump 0.1.1 → 0.3.0 signals breaking changes. |
-| Q2 | Should `fire_dump` use `eprintln!` as fallback when no `on_dump` callback? | **No** | Library crates should never write to stderr. Documented the silent-failure trade-off in `with_dump_on`'s `# Errors` doc section + AGENTS.md. Users who need dump-reliability alerts must register `on_dump`. |
-| Q3 | Convert all FEATURES.md `file:line` citations to symbol names? | **Yes** | 3 of 6 were already stale. Converted all 6 to `Type::method` symbol names — same permanent fix applied to DOMAIN_LANGUAGE.md in the prior session. |
+| #  | Question                                                                   | Decision              | Rationale                                                                                                                                                                                                    |
+| -- | -------------------------------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Q1 | Separate v0.2.0/v0.3.0 releases or batch into one 0.3.0 jump?              | **Batch into v0.3.0** | v0.2.0 was never tagged, no users have it, current HEAD has both batches. Publishing v0.2.0 just to immediately publish v0.3.0 is pointless churn. Semver jump 0.1.1 → 0.3.0 signals breaking changes.       |
+| Q2 | Should `fire_dump` use `eprintln!` as fallback when no `on_dump` callback? | **No**                | Library crates should never write to stderr. Documented the silent-failure trade-off in `with_dump_on`'s `# Errors` doc section + AGENTS.md. Users who need dump-reliability alerts must register `on_dump`. |
+| Q3 | Convert all FEATURES.md `file:line` citations to symbol names?             | **Yes**               | 3 of 6 were already stale. Converted all 6 to `Type::method` symbol names — same permanent fix applied to DOMAIN_LANGUAGE.md in the prior session.                                                           |
 
 ---
 
@@ -27,20 +27,21 @@ The prior session executed the Pareto plan (P0→P2 + M18) but stopped at the pu
 
 Converted all 6 `file:line` citations to stable symbol names:
 
-| Old (stale) | New (stable) |
-|-------------|-------------|
-| `src/layer.rs:75` | `FlightRecorder::push` |
-| `src/layer.rs:91` | `FlightRecorder::snapshot` |
-| `src/layer.rs:762` (was **825**) | `FlightRecorderLayer::on_event` |
-| `src/capture.rs:160` (was **174**) | `FieldVisitor` |
-| `src/capture.rs:201` (was **215**) | `is_sensitive_field` |
-| `src/layer.rs:109` | `FlightRecorder::dump_to_json` |
+| Old (stale)                        | New (stable)                    |
+| ---------------------------------- | ------------------------------- |
+| `src/layer.rs:75`                  | `FlightRecorder::push`          |
+| `src/layer.rs:91`                  | `FlightRecorder::snapshot`      |
+| `src/layer.rs:762` (was **825**)   | `FlightRecorderLayer::on_event` |
+| `src/capture.rs:160` (was **174**) | `FieldVisitor`                  |
+| `src/capture.rs:201` (was **215**) | `is_sensitive_field`            |
+| `src/layer.rs:109`                 | `FlightRecorder::dump_to_json`  |
 
 **Why this matters:** `file:line` citations drift on every code edit above them. Symbol names don't. This is the permanent fix — not the third patch.
 
 ### 2. fire_dump error documentation (Q2)
 
 Added `# Errors` section to `with_dump_on` doc comment explaining:
+
 - Dump failures don't propagate from `on_event` (trigger path must never panic the subscriber)
 - With `on_dump` registered: failures surface as `DumpEvent { success: false, error: Some(…) }`
 - Without `on_dump`: failures are silent (by design)
@@ -53,19 +54,20 @@ Ran `cargo doc --all-features --no-deps` with `RUSTDOCFLAGS="-D rustdoc::broken-
 
 ### 4. Release materials prepared (Q1)
 
-| File | Change |
-|------|--------|
-| `Cargo.toml` | `0.2.0` → `0.3.0` |
+| File           | Change                                                                                                                             |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `Cargo.toml`   | `0.2.0` → `0.3.0`                                                                                                                  |
 | `CHANGELOG.md` | Merged `[0.2.0]` + `[Unreleased]` into single `[0.3.0]` section. Updated link references. New `[Unreleased]` is empty placeholder. |
-| `README.md` | Version refs `"0.2"` → `"0.3"` (3 locations: install line + openapi feature example + gzip feature example) |
-| `TODO_LIST.md` | Collapsed 2 release tasks into 1 (`Tag and publish v0.3.0`) with updated notes |
-| `ROADMAP.md` | Updated release state description (removed "v0.2.0 + v0.3.0", now just "v0.3.0") |
+| `README.md`    | Version refs `"0.2"` → `"0.3"` (3 locations: install line + openapi feature example + gzip feature example)                        |
+| `TODO_LIST.md` | Collapsed 2 release tasks into 1 (`Tag and publish v0.3.0`) with updated notes                                                     |
+| `ROADMAP.md`   | Updated release state description (removed "v0.2.0 + v0.3.0", now just "v0.3.0")                                                   |
 
 `cargo publish --dry-run --all-features --allow-dirty` passes: v0.3.0, 25 files, 244.4KiB.
 
 ### 5. Pareto plan Resolution appendix
 
 Added `## Resolution` section to `docs/planning/2026-08-11_20-11_pareto-execution-plan.md` documenting:
+
 - Task-by-task outcome table (M1–M18)
 - 3 decisions made during execution with rationale
 - What remains (blocked on user approval — irreversible)
@@ -73,14 +75,14 @@ Added `## Resolution` section to `docs/planning/2026-08-11_20-11_pareto-executio
 
 ### 6. Full quality gate (verified green)
 
-| Check | Result |
-|-------|--------|
-| `cargo test --all-features` | 88 passed, 1 ignored, 10 doctests |
-| `cargo clippy --all-features --all-targets -- -D warnings` | Clean |
-| `cargo fmt --check` | Clean |
-| `cargo doc --all-features --no-deps` (strict) | Clean |
-| `cargo build --all-features --examples` | All 7 examples compile |
-| `cargo publish --dry-run --all-features` | Passes |
+| Check                                                      | Result                            |
+| ---------------------------------------------------------- | --------------------------------- |
+| `cargo test --all-features`                                | 88 passed, 1 ignored, 10 doctests |
+| `cargo clippy --all-features --all-targets -- -D warnings` | Clean                             |
+| `cargo fmt --check`                                        | Clean                             |
+| `cargo doc --all-features --no-deps` (strict)              | Clean                             |
+| `cargo build --all-features --examples`                    | All 7 examples compile            |
+| `cargo publish --dry-run --all-features`                   | Passes                            |
 
 ---
 
@@ -254,14 +256,14 @@ I compressed the `[0.2.0]` + `[Unreleased]` merge to reduce repetition (some ite
 
 ## Quality Gate Snapshot
 
-| Check | Command | Result |
-|-------|---------|--------|
-| Tests | `cargo test --all-features` | 88 passed, 1 ignored, 10 doctests |
-| Lint | `cargo clippy --all-features --all-targets -- -D warnings` | Clean |
-| Format | `cargo fmt --check` | Clean |
-| Docs | `cargo doc --all-features --no-deps` (strict links) | Clean |
-| Examples | `cargo build --all-features --examples` | All 7 compile |
-| Publish | `cargo publish --dry-run --all-features` | Passes (v0.3.0, 25 files, 244.4KiB) |
+| Check    | Command                                                    | Result                              |
+| -------- | ---------------------------------------------------------- | ----------------------------------- |
+| Tests    | `cargo test --all-features`                                | 88 passed, 1 ignored, 10 doctests   |
+| Lint     | `cargo clippy --all-features --all-targets -- -D warnings` | Clean                               |
+| Format   | `cargo fmt --check`                                        | Clean                               |
+| Docs     | `cargo doc --all-features --no-deps` (strict links)        | Clean                               |
+| Examples | `cargo build --all-features --examples`                    | All 7 compile                       |
+| Publish  | `cargo publish --dry-run --all-features`                   | Passes (v0.3.0, 25 files, 244.4KiB) |
 
 **Not run this session:** `cargo deny check`, `cargo audit`, `cargo bench`.
 

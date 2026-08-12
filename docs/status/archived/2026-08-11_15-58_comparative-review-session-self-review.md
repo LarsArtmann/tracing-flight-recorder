@@ -86,6 +86,7 @@ path.
 I identified that `_ctx: Context` is discarded in `on_event`, losing all
 span context. I proposed adding `spans: Vec<SpanContext>` to
 `CapturedEvent`. But I did not:
+
 - Verify which `tracing` API methods are needed (`ctx.event_scope()`,
   `ctx.current_span()`, or `ctx.scope()` — they have different semantics)
 - Check whether `new_span` needs to be implemented on the `Layer` to
@@ -150,6 +151,7 @@ don't know where or how.
 ### 5. Did not read the Go consumer feedback documents
 
 The Go project has two new docs that drove the feature update:
+
 - `docs/feedback/new/2026-08-11_real-world-consumer-feedback-from-project-discovery-sdk.md` (331 lines)
 - `docs/status/2026-08-11_14-49_operational-features-from-consumer-feedback.md` (275 lines)
 
@@ -200,6 +202,7 @@ finding.
 ### 2. Did not verify claims before encoding them
 
 Multiple examples:
+
 - Said "zero non-tracing dependencies" claim is false — correct, but I
   could have checked if serde/chrono are behind a feature flag (they're
   not, but I should have verified in `Cargo.toml` `[features]`)
@@ -398,13 +401,13 @@ found myself?
 
 Feedback document delivered. All bugs it found were fixed in the next session.
 
-| Finding | Resolution | Commit |
-|---------|-----------|--------|
-| Span context blind spot (#1 issue) | Implemented in session 8 (`on_new_span`/`on_record`/`on_event` scope walk) | `f6a93e9` |
-| capacity=0 retains 1 event | Fixed — early return guard in `push()` | `f6a93e9` |
-| retention=0 deletes own dump | Fixed — `max_files=0` means unlimited | `f6a93e9` |
-| `is_sensitive_field` allocation | Fixed — zero-alloc `windows()` + `eq_ignore_ascii_case` | `f6a93e9` |
-| Allocation count (claimed 14-17 by reading) | Profiled empirically: ~9 allocs/event (after fixes) | `34ab131` |
-| README "zero non-tracing deps" false claim | Corrected to "minimal dependencies" | `f6a93e9` |
-| Go project doc bugs (options.go:121, FEATURES.md:56) | Different repo — not actionable here | — |
-| All 50 "next things" brainstorm | Items picked up by sessions 8–11. Remaining open items in `TODO_LIST.md`. | — |
+| Finding                                              | Resolution                                                                 | Commit    |
+| ---------------------------------------------------- | -------------------------------------------------------------------------- | --------- |
+| Span context blind spot (#1 issue)                   | Implemented in session 8 (`on_new_span`/`on_record`/`on_event` scope walk) | `f6a93e9` |
+| capacity=0 retains 1 event                           | Fixed — early return guard in `push()`                                     | `f6a93e9` |
+| retention=0 deletes own dump                         | Fixed — `max_files=0` means unlimited                                      | `f6a93e9` |
+| `is_sensitive_field` allocation                      | Fixed — zero-alloc `windows()` + `eq_ignore_ascii_case`                    | `f6a93e9` |
+| Allocation count (claimed 14-17 by reading)          | Profiled empirically: ~9 allocs/event (after fixes)                        | `34ab131` |
+| README "zero non-tracing deps" false claim           | Corrected to "minimal dependencies"                                        | `f6a93e9` |
+| Go project doc bugs (options.go:121, FEATURES.md:56) | Different repo — not actionable here                                       | —         |
+| All 50 "next things" brainstorm                      | Items picked up by sessions 8–11. Remaining open items in `TODO_LIST.md`.  | —         |
