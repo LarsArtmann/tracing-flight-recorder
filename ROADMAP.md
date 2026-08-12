@@ -60,12 +60,12 @@ Raw ideas:
 
 ### 5. Crates.io publication
 
-v0.1.1 is live on
+v0.3.0 is live on
 [crates.io](https://crates.io/crates/tracing-flight-recorder) and
-[docs.rs](https://docs.rs/tracing-flight-recorder) (built with the `openapi`
-feature). v0.3.0 changes (span context, triggers, envelope, gzip, observability,
-compact-default) are committed on `master` but not yet tagged
-(see `TODO_LIST.md`). Pushing a `v*.*.*` tag triggers
+[docs.rs](https://docs.rs/tracing-flight-recorder) (built with the `openapi` and
+`gzip` features). It ships span context capture, trigger-driven auto-dumps,
+observability hooks, gzip compression, and compact-by-default JSON output.
+Pushing a `v*.*.*` tag triggers
 [`publish.yml`](https://github.com/LarsArtmann/tracing-flight-recorder/blob/master/.github/workflows/publish.yml)
 which publishes automatically via the `CARGO_REGISTRY_TOKEN` secret. See
 [`docs/RELEASE.md`](RELEASE.md) for the full release runbook.

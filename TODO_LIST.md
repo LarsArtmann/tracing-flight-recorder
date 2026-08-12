@@ -15,12 +15,6 @@
 
 > `DONE` items are removed from this list and logged in `CHANGELOG.md`.
 
-## Release
-
-| Task                   | Status    | Effort | Notes                                                                                                                                                                                                                                                                                                        |
-| ---------------------- | --------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Tag and publish v0.3.0 | 🔴 `TODO` | ~15m   | **v0.2.0 skipped** — was never tagged, no users have it; all changes batched into v0.3.0. `Cargo.toml` is at `0.3.0`, CHANGELOG merged, `cargo publish --dry-run --all-features` passes. Remaining: commit, `git tag v0.3.0`, `git push origin v0.3.0` (triggers `publish.yml`), verify crates.io + docs.rs. |
-
 ## Low Impact — Features & Polish
 
 | Task                                  | Status    | Effort | Notes                                                                                                                                                                                                                                                                       |

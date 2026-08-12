@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 _Nothing yet._
 
-## [0.3.0] - 2026-08-11
+## [0.3.0] - 2026-08-12
 
 _First release since v0.1.1 — v0.2.0 was never tagged, so both batches of
 work are combined here. 8 breaking changes total._
