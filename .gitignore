@@ -42,13 +42,23 @@ workflow-audit-log.*
 /coverage
 reports/
 
+## Javascript and typescript
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+.next/
+.nuxt/
+.docusaurus/
+.eslintcache
+.cache/
+.parcel-cache/
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
 ## Rust
 target/
 *.pdb
-
-## Example output artifacts
-minimal-dump.json
-diagnostics-example/
-diagnostics/
-flight-recorder.json
 # <<< buildflow-managed (.gitignore) <<<
